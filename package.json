@@ -1,0 +1,14 @@
+{
+    "name": "companion-module-ledscreen",
+    "version": "1.0.1",
+    "main": "main.js",
+    "private": true,
+    "files": [
+        "main.js",
+        "companion-module.json"
+    ],
+    "dependencies": {
+        "node-fetch": "^2.6.1"
+    },
+    "type": "instance"
+}
