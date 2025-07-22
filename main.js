@@ -28,20 +28,32 @@ class LEDScreenModule extends InstanceBase {
 
   initUDPListener() {
     if (!this.config.serverIp || this.config.serverIp.length === 0) {
-        const socket = dgram.createSocket('udp4')
-        socket.bind(8050)
+        
+        try {
+            const socket = dgram.createSocket('udp4')
+            socket.bind(8051)
 
-        socket.on('message', (msg, rinfo) => {
-        const message = msg.toString()
-        if (message.startsWith('LEDScreen_peer;')) {
-            const port = message.split(';')[1]
-            this.serverIp = rinfo.address
-            this.serverPort = port
-            this.log('info', `Server gevonden op ${this.serverIp}:${this.serverPort}`)
-            this.fetchScreens()
-			socket.close();
+            socket.on('message', (msg, rinfo) => {
+            const message = msg.toString()
+            if (message.startsWith('LEDScreen_peer;')) {
+                const port = message.split(';')[1]
+                this.serverIp = rinfo.address
+                this.serverPort = port
+                this.log('info', `Server gevonden op ${this.serverIp}:${this.serverPort}`)
+                this.fetchScreens()
+			    socket.close();
+            }
+            })
+        } catch (err) {
+            if(err.message=="bind EADDRINUSE 0.0.0.0:8050"){
+                    this.serverIp = "127.0.0.1";
+                    this.serverPort = "8001";
+                    this.log('info', `Server ${this.serverIp}:${this.serverPort}`)
+                    this.fetchScreens()
+            }else{
+                this.log('error', 'Kan schermen niet laden: ' + err.message)
+            }
         }
-        })
     }else{
         this.serverIp = this.config.serverIp;
         this.serverPort = this.config.serverPort;
