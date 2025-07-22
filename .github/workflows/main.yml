@@ -1,0 +1,48 @@
+name: Build Companion Module TGZ
+
+# Triggers this workflow on pushes to the 'main' branch
+# and also allows manual triggering from the GitHub Actions UI.
+on:
+  push:
+    branches:
+      - main # Pas dit aan als je modulecode op een andere branch staat
+  workflow_dispatch: # Hiermee kun je de workflow handmatig uitvoeren via de GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # De virtuele omgeving waarin de actie zal draaien
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3 # Haalt de code uit je repository op
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3 # Configureert Node.js op de runner
+        with:
+          node-version: '18' # Gebruik een recente LTS-versie die compatibel is met Companion v4.
+
+      - name: Install dependencies
+        run: npm ci # Installeert projectafhankelijkheden. 'npm ci' is sneller en consistenter in CI/CD.
+
+      - name: Create .tgz package
+        # npm pack zal het .tgz bestand genereren met een naam zoals <package-name>-<version>.tgz
+        # Dit bestand wordt direct in de huidige werkmap geplaatst.
+        run: npm pack
+
+      - name: Get package filename
+        id: get_filename # Geef een ID aan deze stap om de output te kunnen gebruiken
+        run: |
+          # Lees de naam en versie uit package.json
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          # Genereer de verwachte bestandsnaam van het .tgz
+          TGZ_FILE="${PACKAGE_NAME}-${PACKAGE_VERSION}.tgz"
+          # Sla de bestandsnaam op als een omgevingsvariabele voor latere stappen
+          echo "TGZ_FILE=${TGZ_FILE}" >> $GITHUB_ENV
+          echo "Generated TGZ: $TGZ_FILE"
+
+      - name: Upload .tgz as artifact
+        uses: actions/upload-artifact@v3 # Uploadt het gecreëerde .tgz bestand als een artifact
+        with:
+          name: companion-module-tgz # De naam van de artifact (zichtbaar in GitHub UI)
+          path: ${{ env.TGZ_FILE }} # Het pad naar het .tgz bestand, gebruikmakend van de omgevingsvariabele
