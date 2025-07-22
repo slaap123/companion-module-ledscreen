@@ -1,4 +1,4 @@
-const { InstanceBase, runEntrypoint } = require('@companion-module/base')
+const { InstanceBase, runEntrypoint, InstanceStatus  } = require('@companion-module/base')
 const dgram = require('dgram')
 const fetch = require('node-fetch')
 
@@ -21,6 +21,9 @@ class LEDScreenModule extends InstanceBase {
 
     this.initUDPListener()
     this.updateActions()
+    
+    this.updateVariables();
+    this.updateFeedbacks();
   }
 
   initUDPListener() {
@@ -36,12 +39,14 @@ class LEDScreenModule extends InstanceBase {
             this.serverPort = port
             this.log('info', `Server gevonden op ${this.serverIp}:${this.serverPort}`)
             this.fetchScreens()
-			socket.destroy();
+			socket.close();
         }
         })
     }else{
         this.serverIp = this.config.serverIp;
         this.serverPort = this.config.serverPort;
+        this.log('info', `Server gevonden via config ${this.serverIp}:${this.serverPort}`)
+        this.fetchScreens()
     }
   }
 
@@ -53,17 +58,56 @@ class LEDScreenModule extends InstanceBase {
       this.screens = data
       this.log('info', `${Object.keys(data).length} schermen geladen`)
       this.updateActions()
+      this.updateStatus(InstanceStatus.Ok)
     } catch (err) {
       this.log('error', 'Kan schermen niet laden: ' + err.message)
     }
   }
+updateVariables() {
+    const variables = [
+      { variableId: 'last_selected_screen_button_id', name: 'Laatst Geselecteerd Scherm Knop ID' },
+    ];
 
+    this.set
+    this.setVariableDefinitions(variables);
+
+    // Initialiseer de waarden
+    this.setVariableValues({
+     last_selected_screen_button_id: null,
+    });
+  }
+    updateFeedbacks() {
+        const feedbacks = {
+      selected_button_highlight: { 
+        type: 'boolean', // Of 'advanced' als je meer styling wilt
+        name: 'Highlight laatst geselecteerde schermknop',
+        description: 'Maakt de knop geel als deze de laatst geselecteerde schermknop was.',
+        options: [], // Geen opties nodig, we controleren de knop-ID
+        callback: (feedback) => {
+          // De ID van de knop waarop deze feedback is toegepast
+          const currentButtonId = feedback.controlId;
+          const lastSelectedButtonId = this.getVariableValue('last_selected_screen_button_id');
+            this.log('info', `${currentButtonId} == ${lastSelectedButtonId}`)
+          // Vergelijk de ID's
+          if (currentButtonId && lastSelectedButtonId && currentButtonId === lastSelectedButtonId) {
+            return {
+              bgcolor: this.COLOR_GREEN, // Stel de achtergrondkleur in op geel
+              color: this.COLOR_BLACK, // Optioneel: pas de tekstkleur aan voor contrast
+            };
+          }
+          return false; // Geen highlight
+        },
+      },
+    };
+    this.setFeedbackDefinitions(feedbacks);
+    }
   updateActions() {
     const screenChoices = Object.entries(this.screens).map(([key, screen]) => ({
       id: parseInt(key),
       label: screen.Name || `Scherm ${key}`
     }))
 
+    
     this.setActionDefinitions({
       select_screen: {
         name: 'Selecteer scherm',
@@ -77,11 +121,18 @@ class LEDScreenModule extends InstanceBase {
           }
         ],
         callback: (event) => {
+            if (this.getVariableValue('last_selected_screen_button_id') !== null) {
+              this.checkFeedbacks('selected_button_highlight'); // Controleer de feedback om de highlight te verwijderen
+          }
           this.selectedScreen = parseInt(event.options.screen)
           this.log('info', `Geselecteerd scherm: ${this.selectedScreen}`)
+          this.setVariableValues({
+            last_selected_screen_button_id: this.lastCommand ? this.lastCommand.button : null,
+          });
+          this.checkFeedbacks('selected_button_highlight');
         }
       },
-
+      
       send_show: {
         name: 'Stuur show naar geselecteerd scherm',
         options: [
@@ -117,7 +168,6 @@ class LEDScreenModule extends InstanceBase {
       }
     })
   }
-
   getConfigFields() {
     return [{
         type: 'textinput',

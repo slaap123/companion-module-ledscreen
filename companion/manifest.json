@@ -1,0 +1,21 @@
+{
+	"id": "ledscreen",
+	"name": "ledscreen",
+	"shortname": "ledscreen",
+	"description": "ledscreen controller for companion",
+	"manufacturer": "Wouter",
+	"products": ["led panels"],
+	"keywords": ["api"],
+	"version": "0.0.0",
+	"license": "MIT",
+	"maintainers":[],
+	"legacyIds": [],
+	"bugs":"",
+	"repository":"",
+	"runtime": {
+		"type": "node22",
+		"api": "nodejs-ipc",
+		"apiVersion": "0.0.0",
+		"entrypoint": "../main.js"
+	}
+}
