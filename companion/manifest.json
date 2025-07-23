@@ -5,12 +5,14 @@
 	"description": "ledscreen controller for companion",
 	"version": "0.0.0",
 	"license": "MIT",
-	"repository":"https://github.com/slaap123/companion-module-ledscreen.git",
-	"bugs":"https://github.com/slaap123/companion-module-ledscreen/issues",
-	"maintainers":[{
-		"name":"Wouter",
-		"email":"wouter@phanos.amsterdam"
-	}],
+	"repository": "https://github.com/slaap123/companion-module-ledscreen.git",
+	"bugs": "https://github.com/slaap123/companion-module-ledscreen/issues",
+	"maintainers": [
+		{
+			"name": "Wouter",
+			"email": "wouter@phanos.amsterdam"
+		}
+	],
 	"runtime": {
 		"type": "node22",
 		"api": "nodejs-ipc",

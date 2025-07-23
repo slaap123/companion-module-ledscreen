@@ -555,7 +555,7 @@ __metadata:
   dependencies:
     "@companion-module/base": "npm:^1.x"
     "@companion-module/tools": "npm:^2.3.0"
-    node-fetch: "npm:^2.6.1"
+    node-fetch: "npm:2"
     prettier: "npm:^3.5.3"
   languageName: unknown
   linkType: soft
@@ -1059,7 +1059,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-fetch@npm:^2.6.1":
+"node-fetch@npm:2":
   version: 2.7.0
   resolution: "node-fetch@npm:2.7.0"
   dependencies:

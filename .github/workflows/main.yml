@@ -18,7 +18,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          
+
       - name: Create .tgz package
         run: |
           corepack enable
@@ -28,15 +28,15 @@ jobs:
       - name: Get package filename
         id: get_filename
         run: |
-          PACKAGE_NAME=$(node -p "require('./package.json').packageName")
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          PACKAGE_NAME=$(node -p "require('./companion-module.json').id")
+          PACKAGE_VERSION=$(node -p "require('./companion-module.json').version")
           TGZ_FILE="${PACKAGE_NAME}-${PACKAGE_VERSION}.tgz"
           echo "TGZ_FILE=${TGZ_FILE}" >> $GITHUB_ENV
           echo "Generated TGZ: $TGZ_FILE"
 
       - name: Upload .tgz as artifact
         # Dit is de aangepaste regel
-        uses: actions/upload-artifact@v4 
+        uses: actions/upload-artifact@v4
         with:
           name: companion-module-tgz
           path: ${{ env.TGZ_FILE }}

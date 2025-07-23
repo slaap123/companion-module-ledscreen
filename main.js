@@ -1,33 +1,34 @@
-const { InstanceBase, runEntrypoint, InstanceStatus  } = require('@companion-module/base')
-const dgram = require('dgram')
-const fetch = require('node-fetch')
+const { InstanceBase, runEntrypoint, InstanceStatus } = require('@companion-module/base')
+//const dgram = require('dgram')
+//const fetch = require('node-fetch')
 
 class LEDScreenModule extends InstanceBase {
-  async init(config) {
-    this.config = config
-    this.selectedScreen = null
-    this.serverIp = null
-    this.serverPort = null
-    this.screens = {}
-    this.showOptions = [
-      { id: 0, label: 'Anu' },
-      { id: 1, label: 'Logo' },
-      { id: 2, label: 'Dia' },
-      { id: 3, label: 'Talm' },
-      { id: 4, label: 'Hidden' },
-      { id: 5, label: 'FTB' },
-      { id: 6, label: 'DEBUG' }
-    ]
+	async init(config) {
+		this.config = config
+		this.selectedScreen = null
+		this.serverIp = null
+		this.serverPort = null
+		this.screens = {}
+		this.Restore = {}
+		this.showOptions = [
+			{ id: 0, label: 'Anu' },
+			{ id: 1, label: 'Logo' },
+			{ id: 2, label: 'Dia' },
+			{ id: 3, label: 'Talm' },
+			{ id: 4, label: 'Hidden' },
+			{ id: 5, label: 'FTB' },
+			{ id: 6, label: 'DEBUG' },
+		]
 
-    this.initUDPListener()
-    this.updateActions()
-    
-    this.updateVariables();
-    this.updateFeedbacks();
-  }
+		this.initUDPListener()
+		this.updateActions()
 
-  initUDPListener() {
-    if (!this.config.serverIp || this.config.serverIp.length === 0) {
+		this.updateVariables()
+		this.updateFeedbacks()
+	}
+
+	initUDPListener() {
+		/*if (!this.config.serverIp || this.config.serverIp.length === 0) {
         
         try {
             const socket = dgram.createSocket('udp4')
@@ -54,152 +55,364 @@ class LEDScreenModule extends InstanceBase {
                 this.log('error', 'error on udp: ' + err.message)
             }
         }
-    }else{
-        this.serverIp = this.config.serverIp;
-        this.serverPort = this.config.serverPort;
-        this.log('info', `Server gevonden via config ${this.serverIp}:${this.serverPort}`)
-        this.fetchScreens()
-    }
-  }
+    }else{*/
+		this.serverIp = this.config.serverIp
+		this.serverPort = this.config.serverPort
+		this.fetchScreens()
+		//}
+	}
 
-  async fetchScreens() {
-    try {
-      const url = `http://${this.serverIp}:${this.serverPort}/screens/true/`
-      const res = await fetch(url)
-      const data = await res.json()
-      this.screens = data
-      this.log('info', `${Object.keys(data).length} schermen geladen`)
-      this.updateActions()
-      this.updateStatus(InstanceStatus.Ok)
-    } catch (err) {
-      this.log('error', 'Kan schermen niet laden: ' + err.message)
-    }
-  }
-updateVariables() {
-    const variables = [
-      { variableId: 'last_selected_screen_button_id', name: 'Laatst Geselecteerd Scherm Knop ID' },
-    ];
+	async fetchScreens() {
+		try {
+			const url = `http://${this.serverIp}:${this.serverPort}/screens/true/`
+			const res = await fetch(url)
+			const data = await res.json()
+			this.screens = data
+			this.log('info', `${Object.keys(data).length} schermen geladen`)
 
-    this.set
-    this.setVariableDefinitions(variables);
+			for (const [key, screen] of Object.entries(this.screens)) {
+				this.Restore[key] = screen.show;
+        this.log('info',  `Fout bij verzenden show: ${err.message}`)
+			}
+			this.updateActions()
+			this.updatePreset()
+			this.updateStatus(InstanceStatus.Ok)
+		} catch (err) {
+			this.log('error', 'Kan schermen niet laden: ' + err.message)
+		}
+	}
+	updateVariables() {
+		const variables = [{ variableId: 'last_selected_screen_button_id', name: 'Laatst Geselecteerd Scherm Knop ID' }]
 
-    // Initialiseer de waarden
-    this.setVariableValues({
-     last_selected_screen_button_id: null,
-    });
-  }
-    updateFeedbacks() {
-        const feedbacks = {
-      selected_button_highlight: { 
-        type: 'boolean', // Of 'advanced' als je meer styling wilt
-        name: 'Highlight laatst geselecteerde schermknop',
-        description: 'Maakt de knop geel als deze de laatst geselecteerde schermknop was.',
-        options: [], // Geen opties nodig, we controleren de knop-ID
-        callback: (feedback) => {
-          // De ID van de knop waarop deze feedback is toegepast
-          const currentButtonId = feedback.controlId;
-          const lastSelectedButtonId = this.getVariableValue('last_selected_screen_button_id');
-            this.log('info', `${currentButtonId} == ${lastSelectedButtonId}`)
-          // Vergelijk de ID's
-          if (currentButtonId && lastSelectedButtonId && currentButtonId === lastSelectedButtonId) {
-            return {
-              bgcolor: this.COLOR_GREEN, // Stel de achtergrondkleur in op geel
-              color: this.COLOR_BLACK, // Optioneel: pas de tekstkleur aan voor contrast
-            };
-          }
-          return false; // Geen highlight
-        },
-      },
-    };
-    this.setFeedbackDefinitions(feedbacks);
-    }
-  updateActions() {
-    const screenChoices = Object.entries(this.screens).map(([key, screen]) => ({
-      id: parseInt(key),
-      label: screen.Name || `Scherm ${key}`
-    }))
+		this.set
+		this.setVariableDefinitions(variables)
 
-    
-    this.setActionDefinitions({
-      select_screen: {
-        name: 'Selecteer scherm',
-        options: [
-          {
-            type: 'dropdown',
-            id: 'screen',
-            label: 'Kies scherm',
-            default: 0,
-            choices: screenChoices
-          }
-        ],
-        callback: (event) => {
-            if (this.getVariableValue('last_selected_screen_button_id') !== null) {
-              this.checkFeedbacks('selected_button_highlight'); // Controleer de feedback om de highlight te verwijderen
-          }
-          this.selectedScreen = parseInt(event.options.screen)
-          this.log('info', `Geselecteerd scherm: ${this.selectedScreen}`)
-          this.setVariableValues({
-            last_selected_screen_button_id: this.lastCommand ? this.lastCommand.button : null,
-          });
-          this.checkFeedbacks('selected_button_highlight');
-        }
-      },
-      
-      send_show: {
-        name: 'Stuur show naar geselecteerd scherm',
-        options: [
-          {
-            type: 'dropdown',
-            id: 'show',
-            label: 'Show type',
-            default: 0,
-            choices: this.showOptions
-          }
-        ],
-        callback: async (event) => {
-          if (this.selectedScreen === null) {
-            this.log('warn', 'Geen scherm geselecteerd')
-            return
-          }
+		// Initialiseer de waarden
+		this.setVariableValues({
+			last_selected_screen_button_id: null,
+		})
+	}
+	updateFeedbacks() {
+		const feedbacks = {
+			selected_button_highlight: {
+				type: 'boolean', // Of 'advanced' als je meer styling wilt
+				name: 'Highlight laatst geselecteerde schermknop',
+				description: 'Maakt de knop geel als deze de laatst geselecteerde schermknop was.',
+				options: [], // Geen opties nodig, we controleren de knop-ID
+				callback: (feedback) => {
+					// De ID van de knop waarop deze feedback is toegepast
+					const currentButtonId = feedback.controlId
+					const lastSelectedButtonId = this.getVariableValue('last_selected_screen_button_id')
+					// Vergelijk de ID's
+					if (currentButtonId && lastSelectedButtonId && currentButtonId === lastSelectedButtonId) {
+						//this.log('info', ` set backgroudn:${currentButtonId} == ${lastSelectedButtonId}`)
+						/*return {
+							bgcolor: this.COLOR_GREEN, // Stel de achtergrondkleur in op geel
+							color: this.COLOR_BLACK, // Optioneel: pas de tekstkleur aan voor contrast
+						}*/
+						return true
+					}
+					return false // Geen highlight
+				},
+			},
+			current_show: {
+				ype: 'advanced', // Of 'advanced' als je meer styling wilt
+				name: 'Highlight huidige show',
+				description: 'Maakt de knop geel als deze de laatst geselecteerde schermknop was.',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'show',
+						label: 'Show type',
+						default: 0,
+						choices: this.showOptions,
+					},
+					{
+						type: 'colorpicker',
+						label: 'New Background Color',
+						id: 'bgcolor',
+						default: this.COLOR_GREEN,
+					},
+				], // Geen opties nodig, we controleren de knop-ID
+				callback: (feedback) => {
+					this.log(
+						'info',
+						` set backgroudn:${feedback.options.show} == ${this.Restore[this.selectedScreen]} -> ${feedback.options.show == this.Restore[this.selectedScreen]}`,
+					)
+					if (feedback.options.show == this.Restore[this.selectedScreen]) {
+						return {
+							bgcolor: feedback.options.bgcolor,
+						}
+					}
+					return {} // Geen highlight
+				},
+			},
+		}
+		this.setFeedbackDefinitions(feedbacks)
+	}
+	updateActions() {
+		const screenChoices = Object.entries(this.screens).map(([key, screen]) => ({
+			id: parseInt(key),
+			label: screen.Name || `Scherm ${key}`,
+		}))
 
-          const screen = this.screens[this.selectedScreen]
-          if (!screen) {
-            this.log('error', 'Ongeldig scherm geselecteerd')
-            return
-          }
+		this.setActionDefinitions({
+			select_screen: {
+				name: 'Selecteer scherm',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'screen',
+						label: 'Kies scherm',
+						default: 0,
+						choices: screenChoices,
+					},
+				],
+				callback: (event) => {
+					if (this.getVariableValue('last_selected_screen_button_id') !== null) {
+						this.checkFeedbacks('selected_button_highlight') // Controleer de feedback om de highlight te verwijderen
+					}
+					this.selectedScreen = parseInt(event.options.screen)
+					this.setVariableValues({
+						last_selected_screen_button_id: event.controlId,
+					})
+					this.checkFeedbacks('selected_button_highlight')
+					this.checkFeedbacks('current_show')
+				},
+			},
 
-          const url = `http://${screen.IP||this.serverIp}:${screen.Port||this.serverPort}/screen/${screen.Key}/${event.options.show}`
+			send_show: {
+				name: 'Stuur show naar geselecteerd scherm',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'show',
+						label: 'Show type',
+						default: 0,
+						choices: this.showOptions,
+					},
+				],
+				callback: async (event) => {
+					if (this.selectedScreen === null) {
+						this.log('warn', 'Geen scherm geselecteerd')
+						return
+					}
 
-          try {
-            await fetch(url)
-            this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
-          } catch (err) {
-            this.log('error', `Fout bij verzenden show: ${err.message}`)
-          }
-        }
-      }
-    })
-  }
-  getConfigFields() {
-    return [{
-        type: 'textinput',
-        id: 'serverIp',
-        label: 'IP Address',
-        default: '192.168.0.100'
-      },{
-        type: 'textinput',
-        id: 'serverPort',
-        label: 'poort',
-        default: '8001'
-      }]
-  }
+					const screen = this.screens[this.selectedScreen]
+					if (!screen) {
+						this.log('error', 'Ongeldig scherm geselecteerd')
+						return
+					}
 
-  async configUpdated(config) {
-    this.config = config;
-	this.fetchScreens()
-  }
+					this.Restore[this.selectedScreen] = event.options.show
+					//this.log('info', `set restore to ${this.Restore[this.selectedScreen]} voor naar ${this.selectedScreen}`)
+					const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${event.options.show}`
 
-  async destroy() {}
+					this.checkFeedbacks('current_show')
+					try {
+						await fetch(url)
+						//this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
+					} catch (err) {
+						this.log('error', `Fout bij verzenden show: ${err.message}`)
+					}
+				},
+			},
+			send_show_all: {
+				name: 'Stuur show naar all',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'show',
+						label: 'Show type',
+						default: 0,
+						choices: this.showOptions,
+					},
+				],
+				callback: async (event) => {
+					for (const [key, screen] of Object.entries(this.screens)) {
+						const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${event.options.show}`
+
+						try {
+							await fetch(url)
+							//this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
+						} catch (err) {
+							this.log('error', `Fout bij verzenden show: ${err.message}`)
+						}
+					}
+				},
+			},
+			restore_screens: {
+				name: 'Stuur restore',
+				callback: async (event) => {
+					for (const [key, screen] of Object.entries(this.screens)) {
+						const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${this.Restore[key]}`
+
+						try {
+							await fetch(url)
+							//this.log('info', `restore ${this.Restore[key]} verzonden naar ${screen.Name}`)
+						} catch (err) {
+							this.log('error', `Fout bij verzenden show: ${err.message}`)
+						}
+					}
+				},
+			},
+		})
+	}
+	updatePreset() {
+		var presets = {}
+		for (const [key, screen] of Object.entries(this.screens)) {
+			presets[screen.Name || `Scherm ${key}`] = {
+				type: 'button',
+				category: 'Select Screen',
+				name: screen.Name || `Scherm ${key}`,
+				previewStyle: {
+					show_topbar: true,
+					bgcolor: this.COLOR_GREEN,
+					text: `Scherm`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+				},
+				style: {
+					show_topbar: false,
+					// This is the minimal set of style properties you must define
+					text: screen.Name || `Scherm ${key}`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+					bgcolor: this.COLOR_BLACK,
+				},
+				steps: [
+					{
+						down: [
+							{
+								actionId: 'select_screen',
+								options: {
+									// options values to use
+									screen: parseInt(key),
+								},
+							},
+						],
+						up: [],
+					},
+				],
+				feedbacks: [
+					{
+						feedbackId: 'selected_button_highlight',
+						style: {
+							bgcolor: this.COLOR_YELLOW,
+						},
+					},
+				],
+			}
+		}
+		for (const showE of this.showOptions) {
+			presets[`show${showE.id}`] = {
+				type: 'button',
+				category: 'Show',
+				name: `show${showE.label}`,
+				previewStyle: {
+					show_topbar: true,
+					bgcolor: this.COLOR_GREEN,
+					text: `show`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+				},
+				style: {
+					show_topbar: false,
+					// This is the minimal set of style properties you must define
+					text: `${showE.label}`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+					bgcolor: this.COLOR_BLACK,
+				},
+				steps: [
+					{
+						down: [
+							{
+								actionId: 'send_show',
+								options: {
+									// options values to use
+									show: showE.id,
+								},
+							},
+						],
+						up: [],
+					},
+				],
+				feedbacks: [
+					{
+						feedbackId: 'current_show',
+						options: {
+							// options values to use
+							show: showE.id,
+              bgcolor: this.COLOR_GREEN,
+						},
+					},
+				],
+			}
+			presets[`show_ALL_${showE.id}`] = {
+				type: 'button',
+				category: 'Show all',
+				name: `show${showE.label} all`,
+				text: `show all`,
+				previewStyle: {
+					show_topbar: true,
+					bgcolor: this.COLOR_GREEN,
+					text: `show all`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+				},
+				style: {
+					show_topbar: false,
+					// This is the minimal set of style properties you must define
+					text: `${showE.label} all`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+					bgcolor: this.COLOR_BLACK,
+				},
+				steps: [
+					{
+						name: `show${showE.label}all`,
+						down: [
+							{
+								actionId: 'send_show_all',
+								options: {
+									// options values to use
+									show: showE.id,
+								},
+							},
+						],
+						up: [],
+					},
+				],
+				feedbacks: [],
+			}
+		}
+
+		this.setPresetDefinitions(presets)
+	}
+	getConfigFields() {
+		return [
+			{
+				type: 'textinput',
+				id: 'serverIp',
+				label: 'IP Address',
+				default: '192.168.0.100',
+			},
+			{
+				type: 'textinput',
+				id: 'serverPort',
+				label: 'poort',
+				default: '8001',
+			},
+		]
+	}
+
+	async configUpdated(config) {
+		this.config = config
+		this.fetchScreens()
+	}
+
+	async destroy() {}
 }
 
 runEntrypoint(LEDScreenModule)

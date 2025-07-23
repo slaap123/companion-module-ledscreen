@@ -1,11 +1,11 @@
 {
-  "type": "instance",
-  "name": "LEDScreen Controller",
-  "id": "ledscreen",
-  "version": "1.0.4",
-  "main": "main.js",
-  "manufacturer": "Wouter",
-  "description": "Stuurt content naar LED schermen via REST en UDP",
-  "keywords": ["led", "screen"],
-  "companionVersion": "4.x"
+	"type": "instance",
+	"name": "LEDScreen Controller",
+	"id": "ledscreen",
+	"version": "1.1.0",
+	"main": "main.js",
+	"manufacturer": "Wouter",
+	"description": "Stuurt content naar LED schermen via REST en UDP",
+	"keywords": ["led", "screen"],
+	"companionVersion": "4.x"
 }
