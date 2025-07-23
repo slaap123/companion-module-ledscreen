@@ -1,10 +1,10 @@
 name: Build Companion Module TGZ
 
 on:
-  #push:
-  #  branches:
-  #    - main
-  #workflow_dispatch:
+  push:
+    branches:
+      - noexistest
+  workflow_dispatch:
 
 jobs:
   build:
