@@ -10,8 +10,8 @@
 	"license": "MIT",
 	"maintainers":[],
 	"legacyIds": [],
-	"bugs":"",
-	"repository":"",
+	"bugs":"https://github.com/slaap123/companion-module-ledscreen/issues",
+	"repository":"https://github.com/slaap123/companion-module-ledscreen.git",
 	"runtime": {
 		"type": "node22",
 		"api": "nodejs-ipc",
