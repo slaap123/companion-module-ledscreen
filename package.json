@@ -1,5 +1,5 @@
 {
-    "name": "companion-module-ledscreen",
+    "name": "ledscreen",
     "version": "1.0.4",
     "main": "main.js",
     "scripts": {

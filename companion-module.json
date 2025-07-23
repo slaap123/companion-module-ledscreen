@@ -1,7 +1,7 @@
 {
   "type": "instance",
   "name": "LEDScreen Controller",
-  "id": "companion-module-ledscreen",
+  "id": "ledscreen",
   "version": "1.0.4",
   "main": "main.js",
   "manufacturer": "Wouter",
