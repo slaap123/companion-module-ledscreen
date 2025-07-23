@@ -71,8 +71,8 @@ class LEDScreenModule extends InstanceBase {
 			this.log('info', `${Object.keys(data).length} schermen geladen`)
 
 			for (const [key, screen] of Object.entries(this.screens)) {
-				this.Restore[key] = screen.show;
-        this.log('info',  `Fout bij verzenden show: ${err.message}`)
+				this.Restore[key] = screen.Show;
+        this.log('info',  `default ${screen.Show}`)
 			}
 			this.updateActions()
 			this.updatePreset()
@@ -135,10 +135,7 @@ class LEDScreenModule extends InstanceBase {
 					},
 				], // Geen opties nodig, we controleren de knop-ID
 				callback: (feedback) => {
-					this.log(
-						'info',
-						` set backgroudn:${feedback.options.show} == ${this.Restore[this.selectedScreen]} -> ${feedback.options.show == this.Restore[this.selectedScreen]}`,
-					)
+					
 					if (feedback.options.show == this.Restore[this.selectedScreen]) {
 						return {
 							bgcolor: feedback.options.bgcolor,
