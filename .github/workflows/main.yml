@@ -3,7 +3,7 @@ name: Build Companion Module TGZ
 on:
   push:
     branches:
-      - noexistest
+      - main
   workflow_dispatch:
 
 jobs:
