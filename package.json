@@ -7,6 +7,9 @@
         "main.js",
         "companion-module.json"
     ],
+	"scripts": {
+		"package": "companion-module-build"
+	},
     "dependencies": {
         "node-fetch": "^2.6.1",
         "@companion-module/base": "^1.x"
