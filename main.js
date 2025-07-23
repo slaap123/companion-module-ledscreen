@@ -10,6 +10,7 @@ class LEDScreenModule extends InstanceBase {
 		this.serverPort = null
 		this.screens = {}
 		this.Restore = {}
+		this.Logos = {}
 		this.showOptions = [
 			{ id: 0, label: 'Anu' },
 			{ id: 1, label: 'Logo' },
@@ -59,6 +60,7 @@ class LEDScreenModule extends InstanceBase {
 		this.serverIp = this.config.serverIp
 		this.serverPort = this.config.serverPort
 		this.fetchScreens()
+		this.fetchLogo();
 		//}
 	}
 
@@ -79,6 +81,18 @@ class LEDScreenModule extends InstanceBase {
 			this.updateStatus(InstanceStatus.Ok)
 		} catch (err) {
 			this.log('error', 'Kan schermen niet laden: ' + err.message)
+		}
+	}
+	async fetchLogo() {
+		try {
+			const url = `http://${this.serverIp}:${this.serverPort}/images/`
+			const res = await fetch(url)
+			const data = await res.json()
+			this.log('info', `${Object.keys(data).length} logos geladen`)
+			this.Logos=data;
+			this.updateActions()
+		} catch (err) {
+			this.log('error', 'Kan logos niet laden: ' + err.message)
 		}
 	}
 	updateVariables() {
@@ -152,6 +166,11 @@ class LEDScreenModule extends InstanceBase {
 			id: parseInt(key),
 			label: screen.Name || `Scherm ${key}`,
 		}))
+		
+		const logoChoices = Object.entries(this.Logos).map(([key, logo]) => ({
+			id: parseInt(key),
+			label: logo,
+		}))
 
 		this.setActionDefinitions({
 			select_screen: {
@@ -204,6 +223,42 @@ class LEDScreenModule extends InstanceBase {
 					this.Restore[this.selectedScreen] = event.options.show
 					//this.log('info', `set restore to ${this.Restore[this.selectedScreen]} voor naar ${this.selectedScreen}`)
 					const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${event.options.show}`
+
+					this.checkFeedbacks('current_show')
+					try {
+						await fetch(url)
+						//this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
+					} catch (err) {
+						this.log('error', `Fout bij verzenden show: ${err.message}`)
+					}
+				},
+			},
+			send_show_logo: {
+				name: 'Stuur show logo+ het logo naar geselecteerd scherm',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'logo',
+						label: 'logo',
+						default: 0,
+						choices: logoChoices,
+					},
+				],
+				callback: async (event) => {
+					if (this.selectedScreen === null) {
+						this.log('warn', 'Geen scherm geselecteerd')
+						return
+					}
+
+					const screen = this.screens[this.selectedScreen]
+					if (!screen) {
+						this.log('error', 'Ongeldig scherm geselecteerd')
+						return
+					}
+
+					this.Restore[this.selectedScreen] = event.options.show
+					//this.log('info', `set restore to ${this.Restore[this.selectedScreen]} voor naar ${this.selectedScreen}`)
+					const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/1/${event.options.logo}`
 
 					this.checkFeedbacks('current_show')
 					try {
@@ -407,6 +462,7 @@ class LEDScreenModule extends InstanceBase {
 	async configUpdated(config) {
 		this.config = config
 		this.fetchScreens()
+		this.fetchLogo();
 	}
 
 	async destroy() {}
