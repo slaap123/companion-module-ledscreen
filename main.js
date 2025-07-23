@@ -51,7 +51,7 @@ class LEDScreenModule extends InstanceBase {
                     this.log('info', `Server ${this.serverIp}:${this.serverPort}`)
                     this.fetchScreens()
             }else{
-                this.log('error', 'Kan schermen niet laden: ' + err.message)
+                this.log('error', 'error on udp: ' + err.message)
             }
         }
     }else{
