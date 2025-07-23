@@ -3,19 +3,22 @@
 	"name": "ledscreen",
 	"shortname": "ledscreen",
 	"description": "ledscreen controller for companion",
-	"manufacturer": "Wouter",
-	"products": ["led panels"],
-	"keywords": ["api"],
 	"version": "0.0.0",
 	"license": "MIT",
-	"maintainers":[],
-	"legacyIds": [],
-	"bugs":"https://github.com/slaap123/companion-module-ledscreen/issues",
 	"repository":"https://github.com/slaap123/companion-module-ledscreen.git",
+	"bugs":"https://github.com/slaap123/companion-module-ledscreen/issues",
+	"maintainers":[{
+		"name":"Wouter",
+		"email":"wouter@phanos.amsterdam"
+	}],
 	"runtime": {
 		"type": "node22",
 		"api": "nodejs-ipc",
 		"apiVersion": "0.0.0",
 		"entrypoint": "../main.js"
-	}
+	},
+	"legacyIds": [],
+	"manufacturer": "Wouter",
+	"products": ["led panels"],
+	"keywords": ["api"]
 }

@@ -2,20 +2,19 @@
     "name": "companion-module-ledscreen",
     "version": "1.0.1",
     "main": "main.js",
-    "private": true,
-    "files": [
-        "main.js",
-        "companion-module.json"
-    ],
     "scripts": {
         "format": "prettier -w .",
         "package": "companion-module-build"
+    },
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/slaap123/companion-module-ledscreen.git"
     },
     "dependencies": {
         "@companion-module/base": "^1.x",
         "node-fetch": "^2.6.1"
     },
-    "type": "instance",
     "devDependencies": {
         "@companion-module/tools": "^2.3.0",
         "prettier": "^3.5.3"
