@@ -7,19 +7,19 @@
         "main.js",
         "companion-module.json"
     ],
-	"scripts": {
-		"format": "prettier -w .",
-		"package": "companion-module-build"
-	},
+    "scripts": {
+        "format": "prettier -w .",
+        "package": "companion-module-build"
+    },
     "dependencies": {
-        "node-fetch": "^2.6.1",
-        "@companion-module/base": "^1.x"
+        "@companion-module/base": "^1.x",
+        "node-fetch": "^2.6.1"
     },
     "type": "instance",
-	"devDependencies": {
-		"@companion-module/tools": "^2.3.0",
-		"prettier": "^3.5.3"
-	},
-	"prettier": "@companion-module/tools/.prettierrc.json",
-	"packageManager": "yarn@4.9.1"
+    "devDependencies": {
+        "@companion-module/tools": "^2.3.0",
+        "prettier": "^3.5.3"
+    },
+    "prettier": "@companion-module/tools/.prettierrc.json",
+    "packageManager": "yarn@4.9.1"
 }
