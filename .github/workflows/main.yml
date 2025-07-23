@@ -28,7 +28,7 @@ jobs:
       - name: Get package filename
         id: get_filename
         run: |
-          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_NAME=$(node -p "require('./package.json').packageName")
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           TGZ_FILE="${PACKAGE_NAME}-${PACKAGE_VERSION}.tgz"
           echo "TGZ_FILE=${TGZ_FILE}" >> $GITHUB_ENV
