@@ -269,6 +269,32 @@ class LEDScreenModule extends InstanceBase {
 					}
 				},
 			},
+			send_show_logo_all: {
+				name: 'Stuur show logo+ het logo naar alle schermen',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'logo',
+						label: 'logo',
+						default: 0,
+						choices: logoChoices,
+					},
+				],
+				callback: async (event) => {
+					for (const [key, screen] of Object.entries(this.screens)) {
+						var url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/1/${event.options.logo}`
+						if(event.options.show==1&&event.options.logo){
+							url+="/"+event.options.logo;
+						}
+						try {
+							await fetch(url)
+							//this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
+						} catch (err) {
+							this.log('error', `Fout bij verzenden show: ${err.message}`)
+						}
+					}
+				},
+			},
 			send_show_all: {
 				name: 'Stuur show naar all',
 				options: [
@@ -278,12 +304,19 @@ class LEDScreenModule extends InstanceBase {
 						label: 'Show type',
 						default: 0,
 						choices: this.showOptions,
+					},{
+						type: 'dropdown',
+						id: 'logo',
+						label: 'logo',
+						choices: logoChoices,
 					},
 				],
 				callback: async (event) => {
 					for (const [key, screen] of Object.entries(this.screens)) {
-						const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${event.options.show}`
-
+						var url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${event.options.show}`
+						if(event.options.show==1&&event.options.logo){
+							url+="/"+event.options.logo;
+						}
 						try {
 							await fetch(url)
 							//this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
