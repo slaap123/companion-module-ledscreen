@@ -19,23 +19,26 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Create .tgz package
+      - name: Install dependencies
         run: |
           corepack enable
           yarn install
-          yarn package
 
-      - name: Get package filename
-        id: get_filename
+      - name: Build package
+        id: build_package
         run: |
           PACKAGE_NAME=$(node -p "require('./companion-module.json').id")
           PACKAGE_VERSION=$(node -p "require('./companion-module.json').version")
           TGZ_FILE="${PACKAGE_NAME}-${PACKAGE_VERSION}.tgz"
+
+          # Maak een tgz met yarn en hernoem naar gewenste naam
+          yarn pack --filename temp.tgz
+          mv temp.tgz "$TGZ_FILE"
+
           echo "TGZ_FILE=${TGZ_FILE}" >> $GITHUB_ENV
           echo "Generated TGZ: $TGZ_FILE"
 
       - name: Upload .tgz as artifact
-        # Dit is de aangepaste regel
         uses: actions/upload-artifact@v4
         with:
           name: companion-module-tgz
