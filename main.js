@@ -179,16 +179,18 @@ class LEDScreenModule extends InstanceBase {
 			setZero: {
 				name: 'set SB to 0.0',
 				callback: async (event) => {
-					const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/SBZero`
-					
-					try {
-						await fetch(url)
-						//this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
-					} catch (err) {
-						this.log('error', `Fout bij verzenden show: ${err.message}`)
+					for (const [key, screen] of Object.entries(this.screens)) {
+						const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/SBZero`
+						try {
+							await fetch(url)
+							//this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
+						} catch (err) {
+							this.log('error', `Fout bij verzenden show: ${err.message}`)
+						}
 					}
 				},
-			}, select_screen: {
+			},
+			select_screen: {
 				name: 'Selecteer scherm',
 				options: [
 					{
