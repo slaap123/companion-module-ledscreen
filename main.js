@@ -178,7 +178,7 @@ class LEDScreenModule extends InstanceBase {
 
 			setZero: {
 				name: 'set SB to 0.0',
-				callback: (event) => {
+				callback: async (event) => {
 					const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/SBZero`
 					
 					try {
