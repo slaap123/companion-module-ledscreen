@@ -24,17 +24,16 @@ jobs:
           corepack enable
           yarn install
 
-      - name: Build package
-        id: build_package
+      - name: Build Companion TGZ
+        run: |
+          yarn package
+
+      - name: Get TGZ filename
+        id: get_filename
         run: |
           PACKAGE_NAME=$(node -p "require('./companion-module.json').id")
           PACKAGE_VERSION=$(node -p "require('./companion-module.json').version")
           TGZ_FILE="${PACKAGE_NAME}-${PACKAGE_VERSION}.tgz"
-
-          # Maak een tgz met yarn en hernoem naar gewenste naam
-          yarn pack --filename temp.tgz
-          mv temp.tgz "$TGZ_FILE"
-
           echo "TGZ_FILE=${TGZ_FILE}" >> $GITHUB_ENV
           echo "Generated TGZ: $TGZ_FILE"
 
