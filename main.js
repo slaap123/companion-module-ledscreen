@@ -17,8 +17,10 @@ class LEDScreenModule extends InstanceBase {
 			{ id: 2, label: 'Dia' },
 			{ id: 3, label: 'Talm' },
 			{ id: 4, label: 'Hidden' },
-			{ id: 5, label: 'FTB' },
-			{ id: 6, label: 'DEBUG' },
+			{ id: 5, label: 'SB' },
+			{ id: 6, label: 'TOD' },
+			{ id: 7, label: 'FTB' },
+			{ id: 8, label: 'DEBUG' },
 		]
 
 		this.initUDPListener()
@@ -173,7 +175,20 @@ class LEDScreenModule extends InstanceBase {
 		}))
 
 		this.setActionDefinitions({
-			select_screen: {
+
+			setZero: {
+				name: 'set SB to 0.0',
+				callback: (event) => {
+					const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/SBZero`
+					
+					try {
+						await fetch(url)
+						//this.log('info', `Show ${event.options.show} verzonden naar ${screen.Name}`)
+					} catch (err) {
+						this.log('error', `Fout bij verzenden show: ${err.message}`)
+					}
+				},
+			}, select_screen: {
 				name: 'Selecteer scherm',
 				options: [
 					{
@@ -196,7 +211,6 @@ class LEDScreenModule extends InstanceBase {
 					this.checkFeedbacks('current_show')
 				},
 			},
-
 			send_show: {
 				name: 'Stuur show naar geselecteerd scherm',
 				options: [
