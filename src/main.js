@@ -1,4 +1,4 @@
-const { InstanceBase, runEntrypoint, InstanceStatus } = require('@companion-module/base')
+const { InstanceBase, runEntrypoint, InstanceStatus, combineRgb } = require('@companion-module/base')
 //const dgram = require('dgram')
 //const fetch = require('node-fetch')
 
@@ -18,9 +18,12 @@ class LEDScreenModule extends InstanceBase {
 			{ id: 3, label: 'Talm' },
 			{ id: 4, label: 'Hidden' },
 			{ id: 5, label: 'SB' },
-			{ id: 6, label: 'TOD' },
-			{ id: 7, label: 'FTB' },
-			{ id: 8, label: 'DEBUG' },
+			{ id: 6, label: 'IsoL' },
+			{ id: 7, label: 'TOD' },
+			{ id: 8, label: 'Tlt' },
+			{ id: 9, label: 'NDI' },
+			{ id: 10, label: 'FTB' },
+			{ id: 11, label: 'DEBUG' },
 		]
 
 		this.initUDPListener()
@@ -68,15 +71,16 @@ class LEDScreenModule extends InstanceBase {
 
 	async fetchScreens() {
 		try {
-			const url = `http://${this.serverIp}:${this.serverPort}/screens/true/`
+			const url = `http://${this.serverIp}:${this.serverPort}/screens/true/`;
+			this.log('info', `URL ${url}`);
 			const res = await fetch(url)
 			const data = await res.json()
 			this.screens = data
-			this.log('info', `${Object.keys(data).length} schermen geladen`)
+			this.log('info', `${Object.keys(data).length} schermen geladen`) 
 
 			for (const [key, screen] of Object.entries(this.screens)) {
 				this.Restore[key] = screen.Show;
-        this.log('info',  `default ${screen.Show}`)
+				this.log('info',  `default ${screen.Show}`)
 			}
 			this.updateActions()
 			this.updatePreset()
@@ -111,10 +115,16 @@ class LEDScreenModule extends InstanceBase {
 	updateFeedbacks() {
 		const feedbacks = {
 			selected_button_highlight: {
-				type: 'boolean', // Of 'advanced' als je meer styling wilt
+				type: 'advanced', // Of 'advanced' als je meer styling wilt
 				name: 'Highlight laatst geselecteerde schermknop',
-				description: 'Maakt de knop geel als deze de laatst geselecteerde schermknop was.',
-				options: [], // Geen opties nodig, we controleren de knop-ID
+				description: 'Maakt de knop  de gekoze kleur als deze de laatst geselecteerde schermknop was.',
+				options: [
+					{
+						type: 'colorpicker',
+						label: 'New Background Color',
+						id: 'bgcolor',
+						default: combineRgb(255, 0, 0),
+					},],
 				callback: (feedback) => {
 					// De ID van de knop waarop deze feedback is toegepast
 					const currentButtonId = feedback.controlId
@@ -126,32 +136,35 @@ class LEDScreenModule extends InstanceBase {
 							bgcolor: this.COLOR_GREEN, // Stel de achtergrondkleur in op geel
 							color: this.COLOR_BLACK, // Optioneel: pas de tekstkleur aan voor contrast
 						}*/
-						return true
+						return {
+							bgcolor: feedback.options.bgcolor, 
+						}
 					}
-					return false // Geen highlight
+					return { } // Geen highlight
 				},
 			},
 			current_show: {
-				ype: 'advanced', // Of 'advanced' als je meer styling wilt
+				type: 'advanced', // Of 'advanced' als je meer styling wilt
 				name: 'Highlight huidige show',
-				description: 'Maakt de knop geel als deze de laatst geselecteerde schermknop was.',
+				description: 'Maakt de knop achtergrond rood als deze de laatst geselecteerde schermknop was.',
 				options: [
-					{
-						type: 'dropdown',
-						id: 'show',
-						label: 'Show type',
-						default: 0,
-						choices: this.showOptions,
-					},
+					//{
+					//	type: 'dropdown',
+					//	id: 'show',
+					//	label: 'Show type',
+					//	default: 0,
+					//	choices: this.showOptions,
+					//},
 					{
 						type: 'colorpicker',
 						label: 'New Background Color',
 						id: 'bgcolor',
-						default: this.COLOR_GREEN,
+						default: combineRgb(0, 0, 255),
 					},
 				], // Geen opties nodig, we controleren de knop-ID
 				callback: (feedback) => {
-					
+					this.log('debug', `bgcolor option value: ${feedback.options.bgcolor}`) // Debug log
+
 					if (feedback.options.show == this.Restore[this.selectedScreen]) {
 						return {
 							bgcolor: feedback.options.bgcolor,
@@ -497,6 +510,7 @@ class LEDScreenModule extends InstanceBase {
 				type: 'textinput',
 				id: 'serverIp',
 				label: 'IP Address',
+				width: '32',
 				default: '192.168.0.100',
 			},
 			{
@@ -504,6 +518,7 @@ class LEDScreenModule extends InstanceBase {
 				id: 'serverPort',
 				label: 'poort',
 				default: '8001',
+				width: '10',
 			},
 		]
 	}
