@@ -2,7 +2,7 @@
     "name": "companion-module-ledscreen",
     "packageName": "ledscreen",
     "version": "1.4.1",
-    "main": "src\\main.js",
+    "main": "src/main.js",
     "scripts": {
         "format": "prettier -w .",
         "package": "companion-module-build"
