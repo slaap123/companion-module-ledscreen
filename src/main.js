@@ -18,12 +18,13 @@ class LEDScreenModule extends InstanceBase {
 			{ id: 3, label: 'Talm' },
 			{ id: 4, label: 'Hidden' },
 			{ id: 5, label: 'SB' },
-			{ id: 6, label: 'IsoL' },
+			{ id: 6, label: 'IsoLynx' },
 			{ id: 7, label: 'TOD' },
-			{ id: 8, label: 'Tlt' },
-			{ id: 9, label: 'NDI' },
-			{ id: 10, label: 'FTB' },
-			{ id: 11, label: 'DEBUG' },
+			{ id: 8, label: 'Title' },
+			{ id: 9, label: 'Ruler' },
+			{ id: 10, label: 'NDI' },
+			{ id: 11, label: 'FTB' },
+			{ id: 12, label: 'DEBUG' },
 		]
 
 		this.initUDPListener()
@@ -31,6 +32,21 @@ class LEDScreenModule extends InstanceBase {
 
 		this.updateVariables()
 		this.updateFeedbacks()
+		this.startPolling()
+	}
+	startPolling() {
+		// clear any existing timer first, just in case
+		if (this.pollTimer) {
+			clearInterval(this.pollTimer)
+		}
+
+		this.pollTimer = setInterval(() => {
+
+			this.log('info', `updating data`)
+			this.fetchScreens()
+			this.fetchLogo();
+		}, 60 * 1000) // every 60 seconds
+
 	}
 
 	initUDPListener() {
@@ -97,6 +113,7 @@ class LEDScreenModule extends InstanceBase {
 			this.log('info', `${Object.keys(data).length} logos geladen`)
 			this.Logos=data;
 			this.updateActions()
+			this.updatePreset()
 		} catch (err) {
 			this.log('error', 'Kan logos niet laden: ' + err.message)
 		}
@@ -375,21 +392,21 @@ class LEDScreenModule extends InstanceBase {
 	updatePreset() {
 		var presets = {}
 		for (const [key, screen] of Object.entries(this.screens)) {
-			presets[screen.Name || `Scherm ${key}`] = {
+			presets[screen.Name +'-'+ key || `Scherm ${key}`] = {
 				type: 'button',
 				category: 'Select Screen',
 				name: screen.Name || `Scherm ${key}`,
 				previewStyle: {
 					show_topbar: true,
 					bgcolor: this.COLOR_GREEN,
-					text: `Scherm`,
+					text: screen.Name ||`Scherm\r\n${key}`,
 					size: 'auto',
 					color: this.COLOR_WHITE,
 				},
 				style: {
 					show_topbar: false,
 					// This is the minimal set of style properties you must define
-					text: screen.Name || `Scherm ${key}`,
+					text: screen.Name || `Scherm\r\n${key}`,
 					size: 'auto',
 					color: this.COLOR_WHITE,
 					bgcolor: this.COLOR_BLACK,
@@ -418,6 +435,76 @@ class LEDScreenModule extends InstanceBase {
 				],
 			}
 		}
+		for (const [key, img] of Object.entries(this.Logos)) {
+			presets[`icon${key}`] = {
+				type: 'button',
+				category: 'Show icon',
+				name: `showicon${img}`,
+				previewStyle: {
+					show_topbar: true,
+					bgcolor: this.COLOR_GREEN,
+					text: `showicon\r\n${img}`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+				},
+				style: {
+					show_topbar: false,
+					// This is the minimal set of style properties you must define
+					text: `${img}`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+					bgcolor: this.COLOR_BLACK,
+				},
+				steps: [
+					{
+						down: [
+							{
+								actionId: 'send_show_logo',
+								options: {
+									// options values to use
+									logo: key,
+								},
+							},
+						],
+						up: [],
+					},
+				],
+			}
+			presets[`iconAll${key}`] = {
+				type: 'button',
+				category: 'Show icon all',
+				name: `showicon${img}`,
+				previewStyle: {
+					show_topbar: true,
+					bgcolor: this.COLOR_GREEN,
+					text: `showicon\r\n${img}`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+				},
+				style: {
+					show_topbar: false,
+					// This is the minimal set of style properties you must define
+					text: `${img}`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+					bgcolor: this.COLOR_BLACK,
+				},
+				steps: [
+					{
+						down: [
+							{
+								actionId: 'send_show_logo_all',
+								options: {
+									// options values to use
+									logo: key,
+								},
+							},
+						],
+						up: [],
+					},
+				],
+			}
+		}
 		for (const showE of this.showOptions) {
 			presets[`show${showE.id}`] = {
 				type: 'button',
@@ -426,7 +513,7 @@ class LEDScreenModule extends InstanceBase {
 				previewStyle: {
 					show_topbar: true,
 					bgcolor: this.COLOR_GREEN,
-					text: `show`,
+					text: `show\r\n${showE.label}`,
 					size: 'auto',
 					color: this.COLOR_WHITE,
 				},
@@ -458,7 +545,9 @@ class LEDScreenModule extends InstanceBase {
 						options: {
 							// options values to use
 							show: showE.id,
-              bgcolor: this.COLOR_GREEN,
+						},
+						style: {
+							bgcolor: this.COLOR_GREEN,
 						},
 					},
 				],
@@ -471,7 +560,7 @@ class LEDScreenModule extends InstanceBase {
 				previewStyle: {
 					show_topbar: true,
 					bgcolor: this.COLOR_GREEN,
-					text: `show all`,
+					text: `all\r\n${showE.label}`,
 					size: 'auto',
 					color: this.COLOR_WHITE,
 				},
@@ -524,12 +613,20 @@ class LEDScreenModule extends InstanceBase {
 	}
 
 	async configUpdated(config) {
+		this.serverIp = this.config.serverIp
+		this.serverPort = this.config.serverPort
 		this.config = config
 		this.fetchScreens()
 		this.fetchLogo();
+		this.startPolling()
 	}
 
-	async destroy() {}
+	async destroy() {
+		if (this.pollTimer) {
+			clearInterval(this.pollTimer)
+			this.pollTimer = null
+		}
+	}
 }
 
 runEntrypoint(LEDScreenModule)
