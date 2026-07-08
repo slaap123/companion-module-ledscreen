@@ -6,39 +6,85 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Bump patch version in package.json
+        id: bump
         run: |
-          corepack enable
-          yarn install
+          NEW_VERSION=$(node -e "
+            const fs = require('fs');
+            const pkg = require('./package.json');
+            const parts = pkg.version.split('.');
+            parts[2] = (parseInt(parts[2], 10) + 1).toString();
+            const newVersion = parts.join('.');
+            pkg.version = newVersion;
+            fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log(newVersion);
+          ")
+          echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Update version in companion-module.json
+        run: |
+          node -e "
+            const fs = require('fs');
+            const cm = require('./companion-module.json');
+            cm.version = process.env.NEW_VERSION;
+            fs.writeFileSync('./companion-module.json', JSON.stringify(cm, null, 2) + '\n');
+          "
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json companion-module.json
+          git commit -m "chore: bump version to ${{ env.NEW_VERSION }} [skip ci]"
+          git tag "v${{ env.NEW_VERSION }}"
+          git push origin main
+          git push origin "v${{ env.NEW_VERSION }}"
 
       - name: Build Companion TGZ
-        run: |
-          yarn package
+        run: yarn package
 
       - name: Get TGZ filename
         id: get_filename
         run: |
           PACKAGE_NAME=$(node -p "require('./companion-module.json').id")
-          PACKAGE_VERSION=$(node -p "require('./companion-module.json').version")
-          TGZ_FILE="${PACKAGE_NAME}-${PACKAGE_VERSION}.tgz"
+          TGZ_FILE="${PACKAGE_NAME}-${{ env.NEW_VERSION }}.tgz"
           echo "TGZ_FILE=${TGZ_FILE}" >> $GITHUB_ENV
-          echo "Generated TGZ: $TGZ_FILE"
 
       - name: Upload .tgz as artifact
         uses: actions/upload-artifact@v4
         with:
           name: companion-module-tgz
           path: ${{ env.TGZ_FILE }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ env.NEW_VERSION }}"
+          name: "v${{ env.NEW_VERSION }}"
+          files: ${{ env.TGZ_FILE }}
+          generate_release_notes: true
