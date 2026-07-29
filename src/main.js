@@ -25,7 +25,8 @@ class LEDScreenModule extends InstanceBase {
 			{ id: 11, label: 'FTB' },
 			{ id: 12, label: 'DEBUG' },
 		]
-
+		this.CurrentIsGroup = false;
+		this.Groups = {};
 		this.initUDPListener()
 		this.updateActions()
 		this.updateVariables()
@@ -60,13 +61,22 @@ class LEDScreenModule extends InstanceBase {
 			const nscreens = {}
 
 			this.log('info', `${Object.keys(data).length} schermen geladen`)
-
 			for (const [, screen] of Object.entries(data)) {
-				const key = `${screen.IP}-${screen.Key}`
-				this.restore[key] = screen.Show
+				const key = ipPortToKey(screen.IP, screen.Key)
+                if (!this.restore[key]) {
+					this.restore[key] = screen.Show;
+                }
 				nscreens[ipPortToKey(screen.IP, screen.Key)] = screen
+				for (const group of screen.SendGroups) {
+					if(group=="Default") continue;
+					if (!this.Groups[group]) {
+						this.Groups[group] = [];
+					}
+					this.Groups[group].push(key);
+				}
 			}
 
+			this.log('info', `Groups: ${JSON.stringify(this.Groups)}`)
 			this.screens = nscreens
 			this.updateScreenNameVariables()
 			this.updateActions()
@@ -167,7 +177,6 @@ class LEDScreenModule extends InstanceBase {
 				callback: (feedback) => {
 					const buttonShowId = this.buttonShowMap[feedback.controlId]
 					const currentShow = this.restore[this.selectedScreen]
-					this.log('info', `Feedback current_show: currentShow=${currentShow}, buttonShowId=${buttonShowId}`)
 					if (buttonShowId === currentShow) {
 						return { bgcolor: feedback.options.nbgcolor }
 					}
@@ -212,6 +221,32 @@ class LEDScreenModule extends InstanceBase {
 					var key=ipPortToKey(screen.IP, screen.Key)
 					this.log('info', `Geselecteerd scherm: ${key}`);
 					this.selectedScreen = key
+					this.setVariableValues({
+						last_selected_screen_button_id: event.controlId,
+						selected_Screen_key: this.selectedScreen,
+					})
+					this.checkFeedbacks('selected_button_highlight', 'current_show')
+				},
+			},
+			select_group: {
+				name: 'Selecteer groep',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'group',
+						label: 'Kies groep',
+						default: Object.keys(this.Groups)[0] || '',
+						choices: Object.keys(this.Groups).map((groupName) => ({
+							id: groupName,
+							label: groupName,
+						})),
+					},
+				],
+				callback: (event) => {
+					const groupName = event.options.group
+					this.log('info', `Geselecteerde groep: ${groupName}`)
+					this.selectedScreen = groupName
+					this.CurrentIsGroup = true
 					this.setVariableValues({
 						last_selected_screen_button_id: event.controlId,
 						selected_Screen_key: this.selectedScreen,
@@ -317,15 +352,28 @@ class LEDScreenModule extends InstanceBase {
 			this.log('warn', 'Geen scherm geselecteerd')
 			return
 		}
+		this.restore[screenKey] = showId
+		if (this.CurrentIsGroup) {
 
+			const screensInGroup = this.Groups[screenKey]
+			for (const key of screensInGroup) {
+				this.postShowToScreen(key, showId);
+			}
+		} else {
+			this.postShowToScreen(screenKey, showId);
+		}
+	}
+	async postShowToScreen(screenKey, showId, logoId) {
 		const screen = this.screens[screenKey]
 		if (!screen) {
 			this.log('error', 'Ongeldig scherm geselecteerd')
 			return
 		}
 
-		this.restore[screenKey] = showId
 		const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${showId}`
+		if (showId === 1 && logoId) {
+			url += `/${logoId}`
+		}
 
 		try {
 			await fetch(url)
@@ -334,26 +382,21 @@ class LEDScreenModule extends InstanceBase {
 			this.log('error', `Fout bij verzenden show: ${err.message}`)
 		}
 	}
-
 	async sendShowLogoToScreen(screenKey, logoId) {
 		if (screenKey === null) {
 			this.log('warn', 'Geen scherm geselecteerd')
 			return
 		}
 
-		const screen = this.screens[screenKey]
-		if (!screen) {
-			this.log('error', 'Ongeldig scherm geselecteerd')
-			return
-		}
+		this.restore[screenKey] = showId
+		if (this.CurrentIsGroup) {
 
-		const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/1/${logoId}`
-
-		try {
-			await fetch(url)
-			this.checkFeedbacks('current_show')
-		} catch (err) {
-			this.log('error', `Fout bij verzenden show: ${err.message}`)
+			const screensInGroup = this.Groups[screenKey]
+			for (const key of screensInGroup) {
+				this.postShowToScreen(key, 1, logoId);
+			}
+		} else {
+			this.postShowToScreen(screenKey, 1, logoId);
 		}
 	}
 
@@ -419,13 +462,15 @@ class LEDScreenModule extends InstanceBase {
 			const screenKey = ipPortToKey(screen.IP, screen.Key)
 			const screenNameVar = `$(${this.label}:screen_name_${screenKey})`
 
-			presets[`${screen.Name}-${key}`] = this.createScreenPreset(
+			presets[screenKey] = this.createScreenPreset(
 				screen.Name || `Scherm ${key}`,
 				screenNameVar,
 				key
 			)
 		}
-
+		for (const [group, screens] of Object.entries(this.Groups)) {
+            presets[`group_${group}`] = this.createGroupPreset(group, screens)
+		}
 		// Logo presets
 		for (const [key, img] of Object.entries(this.logos)) {
 			presets[`icon${key}`] = this.createLogoPreset(img, key, 'send_show_logo')
@@ -443,12 +488,51 @@ class LEDScreenModule extends InstanceBase {
 
 		this.setPresetDefinitions(presets)
 	}
-
+		createGroupPreset(groupName, screens) {
+		const groupNameVar = `$(${this.label}:group_name_${groupName})`
+		
+		return {
+			type: 'button',
+			category: 'Select Group',
+			name: `Group ${groupName}`,
+			previewStyle: {
+				show_topbar: true,
+				bgcolor: this.COLOR_GREEN,
+				text: groupName,
+				size: 'auto',
+				color: this.COLOR_WHITE,
+			},
+			style: {
+				show_topbar: false,
+				text: groupName,
+				size: 'auto',
+				color: this.COLOR_WHITE,
+				bgcolor: this.COLOR_BLACK,
+			},
+			steps: [
+				{
+					down: [
+						{
+							actionId: 'select_group',
+							options: { group: groupName },
+						},
+					],
+					up: [],
+				},
+			],
+			feedbacks: [
+				{
+					feedbackId: 'selected_button_highlight',
+					options: { nbgcolor: combineRgb(0xCC, 0xCC, 0x00) },
+				},
+			],
+		}
+	}
 	createScreenPreset(name, screenNameVar, key) {
 		return {
 			type: 'button',
 			category: 'Select Screen',
-			name,
+			name:name,
 			previewStyle: {
 				show_topbar: true,
 				bgcolor: this.COLOR_GREEN,
