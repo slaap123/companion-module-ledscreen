@@ -373,7 +373,7 @@ class LEDScreenModule extends InstanceBase {
 			return
 		}
 
-		const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${showId}`
+		let url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${showId}`
 		if (showId === 1 && logoId) {
 			url += `/${logoId}`
 		}
@@ -391,7 +391,6 @@ class LEDScreenModule extends InstanceBase {
 			return
 		}
 
-		this.restore[screenKey] = showId
 		if (this.CurrentIsGroup) {
 
 			const screensInGroup = this.Groups[screenKey]
@@ -482,15 +481,48 @@ class LEDScreenModule extends InstanceBase {
 
 		// Restore preset
 		presets.restore = this.createRestorePreset()
+		presets.restore_ALL = this.createRestoreAllPreset()
 
 		// Show presets
 		for (const showOption of this.showOptions) {
 			presets[`show${showOption.id}`] = this.createShowPreset(showOption, false)
 			presets[`show_ALL_${showOption.id}`] = this.createShowPreset(showOption, true)
 		}
-
+        //SBZero preset
+		presets[`SBZero`] = this.createSBZeroPreset()
 		this.setPresetDefinitions(presets)
 	}
+		createSBZeroPreset() {
+			return {
+				type: 'button',
+				category: 'Other',
+				name: `SB 0.0`,
+				previewStyle: {
+					show_topbar: true,
+					bgcolor: this.COLOR_GREEN,
+					text: `SB 0.0`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+				},
+				style: {
+					show_topbar: false,
+					text: `SB 0.0`,
+					size: 'auto',
+					color: this.COLOR_WHITE,
+					bgcolor: this.COLOR_BLACK,
+				},
+				steps: [
+					{
+						down: [
+							{
+								actionId: 'setZero',
+							},
+						],
+						up: [],
+					},
+				]
+			}
+		}
 		createGroupPreset(groupName, screens) {
 		const groupNameVar = `$(${this.label}:group_name_${groupName})`
 		
@@ -593,7 +625,7 @@ class LEDScreenModule extends InstanceBase {
 				{
 					down: [
 						{
-							actionId,
+							actionId: 'send_show_logo',
 							options: { logo: key },
 						},
 					],
