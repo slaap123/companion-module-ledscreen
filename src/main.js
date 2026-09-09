@@ -202,7 +202,7 @@ class LEDScreenModule extends InstanceBase {
 			setZero: {
 				name: 'set SB to 0.0',
 				callback: async () => {
-					await this.sendToAllScreens('/SBZero')
+					await this.sendToAllScreens('/sbzero')
 				},
 			},
 			select_screen: {
@@ -221,6 +221,7 @@ class LEDScreenModule extends InstanceBase {
 					var key=ipPortToKey(screen.IP, screen.Key)
 					this.log('info', `Geselecteerd scherm: ${key}`);
 					this.selectedScreen = key
+					this.CurrentIsGroup = false
 					this.setVariableValues({
 						last_selected_screen_button_id: event.controlId,
 						selected_Screen_key: this.selectedScreen,
@@ -353,6 +354,8 @@ class LEDScreenModule extends InstanceBase {
 			return
 		}
 		this.restore[screenKey] = showId
+
+		this.log('info', this.CurrentIsGroup ? `Geselecteerde groep: ${screenKey}` : `Geselecteerd scherm: ${screenKey}`)
 		if (this.CurrentIsGroup) {
 
 			const screensInGroup = this.Groups[screenKey]
