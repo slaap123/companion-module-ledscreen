@@ -205,6 +205,12 @@ class LEDScreenModule extends InstanceBase {
 					await this.sendToAllScreens('/sbzero')
 				},
 			},
+			ShowReaction: {
+				name: 'show reaction times',
+				callback: async () => {
+					await this.sendToAllScreens('/sbreaction')
+				},
+			},
 			select_screen: {
 				name: 'Selecteer scherm',
 				options: [
@@ -490,6 +496,7 @@ class LEDScreenModule extends InstanceBase {
 		}
         //SBZero preset
 		presets[`SBZero`] = this.createSBZeroPreset()
+		presets[`ShowReaction`] = this.createShowReactionPreset()
 		this.setPresetDefinitions(presets)
 	}
 		createSBZeroPreset() {
@@ -522,7 +529,38 @@ class LEDScreenModule extends InstanceBase {
 					},
 				]
 			}
+	}
+	createShowReactionPreset() {
+		return {
+			type: 'button',
+			category: 'Other',
+			name: `Show reaction`,
+			previewStyle: {
+				show_topbar: true,
+				bgcolor: this.COLOR_GREEN,
+				text: `Show reaction`,
+				size: 'auto',
+				color: this.COLOR_WHITE,
+			},
+			style: {
+				show_topbar: false,
+				text: `Show reaction`,
+				size: 'auto',
+				color: this.COLOR_WHITE,
+				bgcolor: this.COLOR_BLACK,
+			},
+			steps: [
+				{
+					down: [
+						{
+							actionId: 'ShowReaction',
+						},
+					],
+					up: [],
+				},
+			]
 		}
+	}
 		createGroupPreset(groupName, screens) {
 		const groupNameVar = `$(${this.label}:group_name_${groupName})`
 		
