@@ -198,6 +198,12 @@ class LEDScreenModule extends InstanceBase {
 			label: logo,
 		}))
 
+		const keepOnOffChoices = [
+			{ id: 'keep', label: 'Niet wijzigen' },
+			{ id: '1', label: 'Aan' },
+			{ id: '0', label: 'Uit' },
+		]
+
 		this.setActionDefinitions({
 			setZero: {
 				name: 'set SB to 0.0',
@@ -209,6 +215,48 @@ class LEDScreenModule extends InstanceBase {
 				name: 'show reaction times',
 				callback: async () => {
 					await this.sendToAllScreens('/sbreaction')
+				},
+			},
+			set_sb_lines: {
+				name: 'Zet aantal SB regels',
+				options: [
+					{
+						type: 'number',
+						id: 'lines',
+						label: 'Aantal atleet regels',
+						default: 6,
+						min: 1,
+						max: 50,
+					},
+					{
+						type: 'dropdown',
+						id: 'title',
+						label: 'Titel',
+						default: 'keep',
+						choices: keepOnOffChoices,
+					},
+					{
+						type: 'dropdown',
+						id: 'photo',
+						label: 'Foto',
+						default: 'keep',
+						choices: keepOnOffChoices,
+					},
+					{
+						type: 'textinput',
+						id: 'photolines',
+						label: 'Foto regels (leeg = niet wijzigen)',
+						default: '',
+					},
+					{
+						type: 'checkbox',
+						id: 'all',
+						label: 'Alle schermen (anders geselecteerd scherm/groep)',
+						default: false,
+					},
+				],
+				callback: async (event) => {
+					await this.sendScoreBoardLines(event.options)
 				},
 			},
 			select_screen: {
@@ -350,6 +398,48 @@ class LEDScreenModule extends InstanceBase {
 				await fetch(url)
 			} catch (err) {
 				this.log('error', `Fout bij verzenden: ${err.message}`)
+			}
+		}
+	}
+
+	async sendScoreBoardLines(options) {
+		const lines = parseInt(options.lines)
+		if (!(lines >= 1)) {
+			this.log('warn', `Ongeldig aantal regels: ${options.lines}`)
+			return
+		}
+		const query = new URLSearchParams()
+		if (options.title === '0' || options.title === '1') query.set('title', options.title)
+		if (options.photo === '0' || options.photo === '1') query.set('photo', options.photo)
+		const photoLines = `${options.photolines ?? ''}`.trim()
+		if (photoLines !== '') query.set('photolines', photoLines)
+		const qs = query.toString()
+		const path = `${lines}${qs ? `?${qs}` : ''}`
+
+		let keys
+		if (options.all) {
+			keys = Object.keys(this.screens)
+		} else if (this.selectedScreen === null) {
+			this.log('warn', 'Geen scherm geselecteerd')
+			return
+		} else {
+			keys = this.CurrentIsGroup ? this.Groups[this.selectedScreen] || [] : [this.selectedScreen]
+		}
+
+		for (const key of keys) {
+			const screen = this.screens[key]
+			if (!screen) {
+				this.log('error', 'Ongeldig scherm geselecteerd')
+				continue
+			}
+			const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/sblines/${screen.Key}/${path}`
+			try {
+				const res = await fetch(url)
+				if (!res.ok) {
+					this.log('error', `Fout bij zetten SB regels (${res.status}): ${await res.text()}`)
+				}
+			} catch (err) {
+				this.log('error', `Fout bij zetten SB regels: ${err.message}`)
 			}
 		}
 	}
@@ -497,6 +587,10 @@ class LEDScreenModule extends InstanceBase {
         //SBZero preset
 		presets[`SBZero`] = this.createSBZeroPreset()
 		presets[`ShowReaction`] = this.createShowReactionPreset()
+		// SB lines presets
+		for (const lines of [4, 6, 8]) {
+			presets[`SBLines${lines}`] = this.createSBLinesPreset(lines)
+		}
 		this.setPresetDefinitions(presets)
 	}
 		createSBZeroPreset() {
@@ -529,6 +623,40 @@ class LEDScreenModule extends InstanceBase {
 					},
 				]
 			}
+	}
+	createSBLinesPreset(lines) {
+		return {
+			type: 'button',
+			category: 'Scoreboard',
+			name: `SB ${lines} regels`,
+			previewStyle: {
+				show_topbar: true,
+				bgcolor: this.COLOR_GREEN,
+				text: `SB
+${lines} regels`,
+				size: 'auto',
+				color: this.COLOR_WHITE,
+			},
+			style: {
+				show_topbar: false,
+				text: `SB
+${lines} regels`,
+				size: 'auto',
+				color: this.COLOR_WHITE,
+				bgcolor: this.COLOR_BLACK,
+			},
+			steps: [
+				{
+					down: [
+						{
+							actionId: 'set_sb_lines',
+							options: { lines, title: 'keep', photo: 'keep', photolines: '', all: false },
+						},
+					],
+					up: [],
+				},
+			],
+		}
 	}
 	createShowReactionPreset() {
 		return {
