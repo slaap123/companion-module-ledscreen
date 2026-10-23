@@ -9,6 +9,7 @@ class LEDScreenModule extends InstanceBase {
 		this.serverPort = null
 		this.screens = {}
 		this.restore = {}
+		this.currentShow = {} // screenKey -> show id currently on that screen
 		this.logos = {}
 		this.buttonShowMap = {} // Track show values per button
 		this.previews = {} // screenKey -> { width, height, data, scaled }
@@ -122,6 +123,7 @@ class LEDScreenModule extends InstanceBase {
                 if (!this.restore[key]) {
 					this.restore[key] = screen.Show;
                 }
+				this.currentShow[key] = Number(screen.Show)
 				nscreens[ipPortToKey(screen.IP, screen.Key)] = screen
 				for (const group of screen.SendGroups) {
 					if(group=="Default") continue;
@@ -134,6 +136,7 @@ class LEDScreenModule extends InstanceBase {
 
 			this.log('info', `Groups: ${JSON.stringify(this.Groups)}`)
 			this.screens = nscreens
+			this.checkFeedbacks('screen_show')
 			this.updateScreenNameVariables()
 			this.updateActions()
 			this.updateFeedbacks()
@@ -195,7 +198,7 @@ class LEDScreenModule extends InstanceBase {
 	}
 
 	updateFeedbacks() {
-		const previewChoices = [
+		const targetChoices = [
 			...Object.entries(this.screens).map(([key, screen]) => ({
 				id: key,
 				label: screen.Name || `Scherm ${key}`,
@@ -249,6 +252,41 @@ class LEDScreenModule extends InstanceBase {
 				},
 			},
 		}
+		feedbacks.screen_show = {
+			type: 'boolean',
+			name: 'Show actief op scherm/groep',
+			description:
+				'Kleurt de knop als het gekozen scherm (of alle schermen van de groep) de gekozen show tonen.',
+			defaultStyle: {
+				bgcolor: combineRgb(0xcc, 0x00, 0xcc),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [
+				{
+					type: 'dropdown',
+					id: 'target',
+					label: 'Scherm of groep',
+					default: targetChoices[0]?.id ?? '',
+					choices: targetChoices,
+				},
+				{
+					type: 'dropdown',
+					id: 'show',
+					label: 'Show',
+					default: 0,
+					choices: this.showOptions,
+				},
+			],
+			callback: (feedback) => {
+				const target = feedback.options.target
+				const keys =
+					typeof target === 'string' && target.startsWith('group:')
+						? this.Groups[target.substring(6)] || []
+						: [target]
+				const show = Number(feedback.options.show)
+				return keys.length > 0 && keys.every((key) => this.currentShow[key] === show)
+			},
+		}
 		feedbacks.screen_preview = {
 			type: 'advanced',
 			name: 'Preview van scherm/groep',
@@ -259,8 +297,14 @@ class LEDScreenModule extends InstanceBase {
 					type: 'dropdown',
 					id: 'target',
 					label: 'Scherm of groep',
-					default: previewChoices[0]?.id ?? '',
-					choices: previewChoices,
+					default: targetChoices[0]?.id ?? '',
+					choices: targetChoices,
+				},
+				{
+					type: 'checkbox',
+					id: 'textBand',
+					label: 'Donkere balk voor tekst onderaan',
+					default: true,
 				},
 			],
 			subscribe: (feedback) => {
@@ -276,15 +320,23 @@ class LEDScreenModule extends InstanceBase {
 				if (!preview) return {}
 				const width = feedback.image?.width ?? 72
 				const height = feedback.image?.height ?? 72
-				const sizeKey = `${width}x${height}`
-				preview.scaled[sizeKey] ??= addTextBand(scaleToFit(preview, width, height), width, height)
-				return {
-					imageBuffer: preview.scaled[sizeKey],
-					imageBufferEncoding: { pixelFormat: 'RGBA' },
-					imageBufferPosition: { x: 0, y: 0, width, height },
-					// Text goes on the dark band at the bottom so it stays readable over the preview
-					alignment: 'center:bottom',
+				// Older feedbacks have no textBand option yet, those keep the band
+				const textBand = feedback.options.textBand !== false
+				const sizeKey = `${width}x${height}${textBand ? 'band' : ''}`
+				if (!preview.scaled[sizeKey]) {
+					const png = new PNG({ width, height })
+					png.data = scaleToFit(preview, width, height)
+					if (textBand) addTextBand(png.data, width, height)
+					preview.scaled[sizeKey] = PNG.sync.write(png).toString('base64')
 				}
+				// png64 instead of imageBuffer: Companion 5 draws imageBuffers on top of the text, png64 below it
+				const result = {
+					png64: preview.scaled[sizeKey],
+					pngalignment: 'center:center',
+				}
+				// Text goes on the dark band at the bottom so it stays readable over the preview
+				if (textBand) result.alignment = 'center:bottom'
+				return result
 			},
 		}
 		this.setFeedbackDefinitions(feedbacks)
@@ -547,6 +599,11 @@ class LEDScreenModule extends InstanceBase {
 		}
 	}
 
+	setCurrentShow(screenKey, showId) {
+		this.currentShow[screenKey] = Number(showId)
+		this.checkFeedbacks('screen_show')
+	}
+
 	async sendShowToScreen(screenKey, showId) {
 		if (screenKey === null) {
 			this.log('warn', 'Geen scherm geselecteerd')
@@ -579,6 +636,7 @@ class LEDScreenModule extends InstanceBase {
 
 		try {
 			await fetch(url)
+			this.setCurrentShow(screenKey, showId)
 			this.checkFeedbacks('current_show')
 		} catch (err) {
 			this.log('error', `Fout bij verzenden show: ${err.message}`)
@@ -602,10 +660,11 @@ class LEDScreenModule extends InstanceBase {
 	}
 
 	async sendShowLogoToAllScreens(logoId) {
-		for (const [, screen] of Object.entries(this.screens)) {
+		for (const [key, screen] of Object.entries(this.screens)) {
 			const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/1/${logoId}`
 			try {
 				await fetch(url)
+				this.setCurrentShow(key, 1)
 			} catch (err) {
 				this.log('error', `Fout bij verzenden show: ${err.message}`)
 			}
@@ -613,13 +672,14 @@ class LEDScreenModule extends InstanceBase {
 	}
 
 	async sendShowToAllScreens(showId, logoId) {
-		for (const [, screen] of Object.entries(this.screens)) {
+		for (const [key, screen] of Object.entries(this.screens)) {
 			let url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${showId}`
 			if (showId === 1 && logoId) {
 				url += `/${logoId}`
 			}
 			try {
 				await fetch(url)
+				this.setCurrentShow(key, showId)
 			} catch (err) {
 				this.log('error', `Fout bij verzenden show: ${err.message}`)
 			}
@@ -631,6 +691,7 @@ class LEDScreenModule extends InstanceBase {
 			const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${this.restore[key]}`
 			try {
 				await fetch(url)
+				this.setCurrentShow(key, this.restore[key])
 			} catch (err) {
 				this.log('error', `Fout bij verzenden show: ${err.message}`)
 			}
@@ -650,6 +711,7 @@ class LEDScreenModule extends InstanceBase {
 		const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/screen/${screen.Key}/${this.restore[screenKey]}`
 		try {
 			await fetch(url)
+			this.setCurrentShow(screenKey, this.restore[screenKey])
 		} catch (err) {
 			this.log('error', `Fout bij verzenden show: ${err.message}`)
 		}
@@ -668,9 +730,11 @@ class LEDScreenModule extends InstanceBase {
 				screenNameVar,
 				key
 			)
+			presets[`preview_${screenKey}`] = this.createPreviewPreset(screen.Name || `Scherm ${key}`, key)
 		}
 		for (const [group, screens] of Object.entries(this.Groups)) {
             presets[`group_${group}`] = this.createGroupPreset(group, screens)
+			presets[`preview_group_${group}`] = this.createPreviewPreset(`Groep ${group}`, `group:${group}`)
 		}
 		// Logo presets
 		for (const [key, img] of Object.entries(this.logos)) {
@@ -832,6 +896,40 @@ ${lines} regels`,
 				{
 					feedbackId: 'screen_preview',
 					options: { target: `group:${groupName}` },
+				},
+			],
+		}
+	}
+	// Button that only shows the preview of a screen/group: no text and no actions
+	createPreviewPreset(name, target) {
+		return {
+			type: 'button',
+			category: 'Preview',
+			name: `Preview ${name}`,
+			previewStyle: {
+				show_topbar: true,
+				bgcolor: this.COLOR_GREEN,
+				text: `preview\r\n${name}`,
+				size: 'auto',
+				color: this.COLOR_WHITE,
+			},
+			style: {
+				show_topbar: false,
+				text: '',
+				size: 'auto',
+				color: this.COLOR_WHITE,
+				bgcolor: this.COLOR_BLACK,
+			},
+			steps: [
+				{
+					down: [],
+					up: [],
+				},
+			],
+			feedbacks: [
+				{
+					feedbackId: 'screen_preview',
+					options: { target, textBand: true },
 				},
 			],
 		}
