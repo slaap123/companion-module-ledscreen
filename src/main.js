@@ -11,6 +11,8 @@ class LEDScreenModule extends InstanceBase {
 		this.restore = {}
 		this.currentShow = {} // screenKey -> show id currently on that screen
 		this.logos = {}
+		this.titles = [] // names of the title presets on the LedScreen server
+		this.currentTitle = null
 		this.buttonShowMap = {} // Track show values per button
 		this.previews = {} // screenKey -> { width, height, data, scaled }
 		this.previewSubscriptions = {} // feedbackId -> preview target
@@ -60,14 +62,16 @@ class LEDScreenModule extends InstanceBase {
 		if (interval > 0) {
 			this.previewTimer = setInterval(() => this.fetchPreviews(), Math.max(500, interval))
 		}
-		this.fetchPreviews()
+		clearTimeout(this.previewInitTimer)
+		this.previewInitTimer = setTimeout(() => this.fetchPreviews(), 50)
 	}
 
 	// Called after every button press: fetch the previews now, and once more a moment later
 	// so a show that takes a while to appear on the screen is in the preview too
 	refreshPreviewsAfterAction() {
 		if (!this.config.enablePreviews) return
-		this.fetchPreviews()
+		clearTimeout(this.previewInitTimer)
+        this.previewInitTimer = setTimeout(() => this.fetchPreviews(), 50)
 		clearTimeout(this.previewFollowUpTimer)
 		this.previewFollowUpTimer = setTimeout(() => this.fetchPreviews(), 1000)
 	}
@@ -140,6 +144,7 @@ class LEDScreenModule extends InstanceBase {
 			this.log('info', 'Updating data')
 			this.fetchScreens()
 			this.fetchLogo()
+			this.fetchTitles()
 		}, 60000)
 	}
 
@@ -148,6 +153,7 @@ class LEDScreenModule extends InstanceBase {
 		this.serverPort = this.config.serverPort
 		this.fetchScreens()
 		this.fetchLogo()
+		this.fetchTitles()
 	}
 
 	async fetchScreens() {
@@ -204,6 +210,57 @@ class LEDScreenModule extends InstanceBase {
 		}
 	}
 
+	// Names of the saved title presets and the active one (needs a LedScreen with the /titles route)
+	async fetchTitles() {
+		try {
+			const res = await fetch(`http://${this.serverIp}:${this.serverPort}/titles`)
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			const data = await res.json()
+			const names = data.titles || []
+			const changed = JSON.stringify(names) !== JSON.stringify(this.titles)
+			this.titles = names
+			this.setCurrentTitle(data.current ?? null)
+			if (changed) {
+				this.log('info', `${names.length} titels geladen`)
+				this.updateActions()
+				this.updatePreset()
+			}
+		} catch (err) {
+			this.log('debug', `Kan titels niet laden: ${err.message}`)
+		}
+	}
+
+	setCurrentTitle(title) {
+		this.currentTitle = title
+		this.setVariableValues({ current_title: title ?? '' })
+		this.checkFeedbacks('title_active')
+	}
+
+	// Makes the named title the active one on every LedScreen computer (each has its own active title)
+	async sendTitle(title) {
+		const hosts = new Set(
+			Object.values(this.screens).map((screen) => `${screen.IP || this.serverIp}:${screen.Port || this.serverPort}`),
+		)
+		if (hosts.size === 0) hosts.add(`${this.serverIp}:${this.serverPort}`)
+		let ok = false
+		for (const host of hosts) {
+			try {
+				const res = await fetch(`http://${host}/settitle/${encodeURIComponent(title)}`)
+				if (res.ok) {
+					ok = true
+				} else if (res.status === 404) {
+					this.log('error', `Titel "${title}" bestaat niet op ${host} (of LedScreen is te oud voor titels kiezen)`)
+				} else {
+					this.log('error', `Fout bij titel zetten op ${host} (${res.status}): ${await res.text()}`)
+				}
+			} catch (err) {
+				this.log('error', `Fout bij titel zetten op ${host}: ${err.message}`)
+			}
+		}
+		if (ok) this.setCurrentTitle(title)
+		return ok
+	}
+
 	updateVariables() {
 		this.setVariableDefinitions(this.buildVariableDefinitions())
 		this.setVariableValues({
@@ -228,6 +285,7 @@ class LEDScreenModule extends InstanceBase {
 			{ variableId: 'talm_base_depth', name: 'Talm basis diepte (cm)' },
 			{ variableId: 'talm_base_height', name: 'Talm basis hoogte (cm)' },
 			{ variableId: 'talm_base_height_m', name: 'Talm basis hoogte (m)' },
+			{ variableId: 'current_title', name: 'Actieve titel' },
 		]
 
 		for (const [, screen] of Object.entries(this.screens)) {
@@ -341,6 +399,26 @@ class LEDScreenModule extends InstanceBase {
 				const show = Number(feedback.options.show)
 				return keys.length > 0 && keys.every((key) => this.currentShow[key] === show)
 			},
+		}
+		feedbacks.title_active = {
+			type: 'boolean',
+			name: 'Titel actief',
+			description: 'Kleurt de knop als de gekozen titel de actieve titel is.',
+			defaultStyle: {
+				bgcolor: combineRgb(0, 0, 0x90),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [
+				{
+					type: 'dropdown',
+					id: 'title',
+					label: 'Titel',
+					default: this.titles[0] ?? '',
+					choices: this.titles.map((name) => ({ id: name, label: name })),
+					allowCustom: true,
+				},
+			],
+			callback: (feedback) => this.currentTitle !== null && feedback.options.title === this.currentTitle,
 		}
 		feedbacks.screen_preview = {
 			type: 'advanced',
@@ -679,6 +757,36 @@ class LEDScreenModule extends InstanceBase {
 				callback: async (event) => {
 					if (!this.requireSelection(event.controlId)) return
 					await this.restoreScreen(this.selectedScreen)
+				},
+			},
+			set_title: {
+				name: 'Zet titel (op naam)',
+				description: 'Maakt de titel met deze naam de actieve titel, net als Publish op het Title tabblad.',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'title',
+						label: 'Titel',
+						default: this.titles[0] ?? '',
+						choices: this.titles.map((name) => ({ id: name, label: name })),
+						allowCustom: true,
+					},
+					{
+						type: 'checkbox',
+						id: 'show',
+						label: 'Ook de Title show op het geselecteerde scherm/groep zetten',
+						default: false,
+					},
+				],
+				callback: async (event, context) => {
+					const title = (await context.parseVariablesInString(`${event.options.title ?? ''}`)).trim()
+					if (title === '') {
+						this.log('warn', 'Geen titel gekozen')
+						return
+					}
+					if (event.options.show && !this.requireSelection(event.controlId)) return
+					if (!(await this.sendTitle(title))) return
+					if (event.options.show) await this.sendShowToScreen(this.selectedScreen, 8)
 				},
 			},
 			restore_screens: {
@@ -1152,6 +1260,12 @@ class LEDScreenModule extends InstanceBase {
 		presets.restore = this.createRestorePreset()
 		presets.restore_ALL = this.createRestoreAllPreset()
 
+		// Title presets: make the title active, and make it active + show it on the selection
+		for (const [i, title] of this.titles.entries()) {
+			presets[`title_${i}`] = this.createTitlePreset(title, false)
+			presets[`title_show_${i}`] = this.createTitlePreset(title, true)
+		}
+
 		// Show presets
 		for (const showOption of this.showOptions) {
 			presets[`show${showOption.id}`] = this.createShowPreset(showOption, false)
@@ -1518,6 +1632,31 @@ ${lines} regels`,
 		}
 	}
 
+	createTitlePreset(title, show) {
+		return {
+			type: 'button',
+			category: show ? 'Title + show' : 'Title',
+			name: show ? `Titel ${title} + show` : `Titel ${title}`,
+			style: {
+				show_topbar: false,
+				text: title,
+				size: 'auto',
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(0, 0, 0),
+			},
+			steps: [
+				{
+					down: [{ actionId: 'set_title', options: { title, show } }],
+					up: [],
+				},
+			],
+			feedbacks: [
+				{ feedbackId: 'title_active', options: { title }, style: { bgcolor: combineRgb(0, 0, 0x90) } },
+				...(show ? [this.noSelectionFeedback()] : []),
+			],
+		}
+	}
+
 	createRestoreAllPreset() {
 		return {
 			type: 'button',
@@ -1683,6 +1822,7 @@ ${lines} regels`,
 		this.talmBaseChanged()
 		this.fetchScreens()
 		this.fetchLogo()
+		this.fetchTitles()
 		this.startPolling()
 		this.startPreviewPolling()
 	}
@@ -1697,6 +1837,7 @@ ${lines} regels`,
 			this.previewTimer = null
 		}
 		clearTimeout(this.previewFollowUpTimer)
+		clearTimeout(this.previewInitTimer)
 		for (const timer of Object.values(this.noSelectionFlash)) clearTimeout(timer)
 		this.noSelectionFlash = {}
 	}

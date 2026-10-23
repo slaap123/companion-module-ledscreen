@@ -34,6 +34,11 @@ Na elke knopdruk worden de previews meteen ververst, en een seconde later nog ee
 - **Stuur show logo+ het logo naar geselecteerd scherm / alle schermen**: zet de Logo show met het gekozen logo.
 - **Stuur restore naar geselecteerd scherm** / **Stuur restore**: zet de vorige show terug.
 
+**Titel**
+
+- **Zet titel (op naam)**: maakt de opgeslagen titel met die naam de actieve titel, net als _Publish_ op het Title tabblad van LedScreen. Schermen die de Title show tonen wisselen meteen. Kies de naam uit de lijst of typ hem (variabelen mogen). Zet _Ook de Title show op het geselecteerde scherm/groep zetten_ aan om het geselecteerde scherm ook meteen naar de Title show te zetten.
+- De titel wordt op elke LedScreen computer gezet waar een scherm van deze module op draait. Dit werkt alleen met een LedScreen versie die titels kiezen ondersteunt (`/settitle`).
+
 **Scoreboard**
 
 - **Zet aantal SB regels**: aantal atleetregels, titel en foto aan/uit, fotoregels. Naar de selectie of naar alle schermen.
@@ -58,6 +63,7 @@ De basis diepte en hoogte gelden voor alle schermen samen.
 - **Highlight huidige show**: kleurt de show knop als dat de show van het geselecteerde scherm is (standaard donkerblauw).
 - **Show actief op scherm/groep**: kleurt de knop als het gekozen scherm (of alle schermen van de groep) de gekozen show toont.
 - **Preview van scherm/groep**: toont de inhoud van het scherm (of het eerste scherm van de groep) als achtergrond, optioneel met een donkere balk voor de tekst. Werkt alleen als previews aan staan.
+- **Titel actief**: kleurt de knop als de gekozen titel de actieve titel is (standaard donkerblauw).
 - **Waarschuwing: geen scherm geselecteerd**: kleurt de knop als er niets geselecteerd is en knippert een foutmelding bij indrukken. Kleuren en tekst zijn in te stellen.
 - **Talm: diepte als knoptekst** / **Talm: hoogte als knoptekst**: zet de knoptekst op basis + offset (bijv. `55cm` of `2.10m`). De tekst krijgt een vaste lettergrootte zodat de waarde op één regel blijft. Standaard volgt de tekst automatisch de offset van de stuur actie op dezelfde knop, dus de knop toont precies wat hij verstuurt. Zet _Offset van de stuur-actie op deze knop gebruiken_ uit om zelf een offset in te vullen.
 
@@ -73,6 +79,7 @@ Knoppen die je al geplaatst had krijgen nieuwe feedbacks of kleuren niet vanzelf
 | `$(ledscreen:talm_base_depth)`                | Huidige basis diepte in cm                         |
 | `$(ledscreen:talm_base_height)`               | Huidige basis hoogte in cm                         |
 | `$(ledscreen:talm_base_height_m)`             | Huidige basis hoogte als `2.00m`                   |
+| `$(ledscreen:current_title)`                  | Naam van de actieve titel                          |
 
 Vervang `ledscreen` door de naam van jouw verbinding als je die anders genoemd hebt.
 
@@ -82,6 +89,7 @@ Vervang `ledscreen` door de naam van jouw verbinding als je die anders genoemd h
 - **Preview**: knoppen die alleen de preview van een scherm of groep tonen.
 - **Show / Show all**: een knop per show, voor de selectie of voor alle schermen.
 - **Show icon / Show icon all**: een knop per logo.
+- **Title**: een knop per opgeslagen titel die hem actief maakt. **Title + show**: maakt hem actief en zet het geselecteerde scherm op de Title show.
 - **Scoreboard / Other**: SB regels (4, 6, 8), SB 0.0 en reactietijden.
 - **Talm timer**: 1:00 t/m 6:00 en 30:00, aftellen tot tijdstip, Start, Stop, Reset.
 - **Talm vlag**: ✓, ✗ en Clear.
