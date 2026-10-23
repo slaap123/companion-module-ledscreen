@@ -31,6 +31,11 @@ class LEDScreenModule extends InstanceBase {
 		]
 		this.CurrentIsGroup = false;
 		this.Groups = {};
+		this.talmBaseDepth = parseInt(config.talmDepth) || 60 // cm, like the base on the Talm control page
+		this.talmBaseHeight = parseInt(config.talmHeight) || 200 // cm
+		this.talmLastSet = null // seconds of the last chosen timer preset, sent along with start
+		this.noSelectionFlash = {} // controlId -> timer, buttons pressed while no screen/group was selected
+		this.talmActionOffsets = {} // action id -> { controlId, kind: 'depth' | 'height', offset }, for the button text
 		this.initUDPListener()
 		this.updateActions()
 		this.updateVariables()
@@ -48,9 +53,38 @@ class LEDScreenModule extends InstanceBase {
 		this.checkFeedbacks('screen_preview')
 		if (!this.config.enablePreviews) return
 
-		const interval = Math.max(0.5, parseFloat(this.config.previewInterval) || 2) * 1000
-		this.previewTimer = setInterval(() => this.fetchPreviews(interval), interval)
-		this.fetchPreviews(interval)
+		// 0 = no timed updates, previews then only update when a button is pressed
+		const seconds = parseFloat(this.config.previewInterval)
+		const interval = (Number.isNaN(seconds) ? 2 : seconds) * 1000
+		this.previewFetchTimeout = interval > 0 ? Math.max(500, interval) : 2000
+		if (interval > 0) {
+			this.previewTimer = setInterval(() => this.fetchPreviews(), Math.max(500, interval))
+		}
+		this.fetchPreviews()
+	}
+
+	// Called after every button press: fetch the previews now, and once more a moment later
+	// so a show that takes a while to appear on the screen is in the preview too
+	refreshPreviewsAfterAction() {
+		if (!this.config.enablePreviews) return
+		this.fetchPreviews()
+		clearTimeout(this.previewFollowUpTimer)
+		this.previewFollowUpTimer = setTimeout(() => this.fetchPreviews(), 1000)
+	}
+
+	// Wraps every action callback so the previews are updated after the action ran
+	withPreviewRefresh(actions) {
+		for (const action of Object.values(actions)) {
+			const callback = action.callback
+			action.callback = async (...args) => {
+				try {
+					return await callback(...args)
+				} finally {
+					this.refreshPreviewsAfterAction()
+				}
+			}
+		}
+		return actions
 	}
 
 	// A preview target is a screen key, or 'group:<name>' which shows the first screen of that group
@@ -61,9 +95,14 @@ class LEDScreenModule extends InstanceBase {
 		return target
 	}
 
-	async fetchPreviews(timeout) {
-		if (this.previewsInFlight) return
+	async fetchPreviews(timeout = this.previewFetchTimeout || 2000) {
+		if (this.previewsInFlight) {
+			// a forced update must not get lost: run again once the current fetch is done
+			this.previewsRerun = true
+			return
+		}
 		this.previewsInFlight = true
+		this.previewsRerun = false
 		try {
 			const keys = new Set(
 				Object.values(this.previewSubscriptions)
@@ -89,6 +128,7 @@ class LEDScreenModule extends InstanceBase {
 		} finally {
 			this.previewsInFlight = false
 		}
+		if (this.previewsRerun && this.config.enablePreviews) this.fetchPreviews()
 	}
 
 	startPolling() {
@@ -116,6 +156,8 @@ class LEDScreenModule extends InstanceBase {
 			const res = await fetch(url)
 			const data = await res.json()
 			const nscreens = {}
+			// rebuilt on every fetch, otherwise each refresh adds the screens to their groups again
+			const groups = {}
 
 			this.log('info', `${Object.keys(data).length} schermen geladen`)
 			for (const [, screen] of Object.entries(data)) {
@@ -127,16 +169,17 @@ class LEDScreenModule extends InstanceBase {
 				nscreens[ipPortToKey(screen.IP, screen.Key)] = screen
 				for (const group of screen.SendGroups) {
 					if(group=="Default") continue;
-					if (!this.Groups[group]) {
-						this.Groups[group] = [];
+					if (!groups[group]) {
+						groups[group] = [];
 					}
-					this.Groups[group].push(key);
+					if (!groups[group].includes(key)) groups[group].push(key);
 				}
 			}
 
+			this.Groups = groups
 			this.log('info', `Groups: ${JSON.stringify(this.Groups)}`)
 			this.screens = nscreens
-			this.checkFeedbacks('screen_show')
+			this.checkFeedbacks('screen_show', 'no_selection')
 			this.updateScreenNameVariables()
 			this.updateActions()
 			this.updateFeedbacks()
@@ -167,12 +210,24 @@ class LEDScreenModule extends InstanceBase {
 			last_selected_screen_button_id: null,
 			selected_Screen_key: null,
 		})
+		this.updateTalmVariables()
+	}
+
+	updateTalmVariables() {
+		this.setVariableValues({
+			talm_base_depth: this.talmBaseDepth,
+			talm_base_height: this.talmBaseHeight,
+			talm_base_height_m: formatHeight(this.talmBaseHeight),
+		})
 	}
 
 	buildVariableDefinitions() {
 		const variables = [
 			{ variableId: 'last_selected_screen_button_id', name: 'Laatst Geselecteerd Scherm Knop ID' },
 			{ variableId: 'selected_Screen_key', name: 'Laatst Geselecteerd Scherm key' },
+			{ variableId: 'talm_base_depth', name: 'Talm basis diepte (cm)' },
+			{ variableId: 'talm_base_height', name: 'Talm basis hoogte (cm)' },
+			{ variableId: 'talm_base_height_m', name: 'Talm basis hoogte (m)' },
 		]
 
 		for (const [, screen] of Object.entries(this.screens)) {
@@ -216,7 +271,7 @@ class LEDScreenModule extends InstanceBase {
 						type: 'colorpicker',
 						label: 'New Background Color',
 						id: 'nbgcolor',
-						default: combineRgb(255, 0, 0),
+						default: combineRgb(0, 0x60, 0),
 					},
 				],
 				affectedProperties: ['bgcolor'],
@@ -238,7 +293,7 @@ class LEDScreenModule extends InstanceBase {
 						type: 'colorpicker',
 						label: 'New Background Color',
 						id: 'nbgcolor',
-						default: combineRgb(0, 0, 255),
+						default: combineRgb(0, 0, 0x90),
 					},
 				],
 				affectedProperties: ['bgcolor'],
@@ -339,6 +394,76 @@ class LEDScreenModule extends InstanceBase {
 				return result
 			},
 		}
+		feedbacks.no_selection = {
+			type: 'advanced',
+			name: 'Waarschuwing: geen scherm geselecteerd',
+			description:
+				'Voor knoppen die naar het geselecteerde scherm/groep sturen: kleurt de knop als er niets geselecteerd is, en knippert een foutmelding als de knop dan toch ingedrukt wordt.',
+			options: [
+				{
+					type: 'colorpicker',
+					label: 'Kleur zolang niets geselecteerd is',
+					id: 'idlecolor',
+					default: combineRgb(0x55, 0, 0),
+				},
+				{
+					type: 'colorpicker',
+					label: 'Kleur bij indrukken zonder selectie',
+					id: 'errorcolor',
+					default: combineRgb(255, 0, 0),
+				},
+				{
+					type: 'textinput',
+					label: 'Tekst bij indrukken zonder selectie',
+					id: 'errortext',
+					default: 'Geen scherm!',
+				},
+			],
+			callback: (feedback) => {
+				if (this.noSelectionFlash[feedback.controlId]) {
+					return {
+						bgcolor: feedback.options.errorcolor,
+						color: combineRgb(255, 255, 255),
+						text: feedback.options.errortext,
+					}
+				}
+				if (!this.hasSelection()) return { bgcolor: feedback.options.idlecolor }
+				return {}
+			},
+		}
+		const talmTextOptions = [
+			{
+				type: 'checkbox',
+				id: 'useActionOffset',
+				label: 'Offset van de stuur-actie op deze knop gebruiken',
+				default: true,
+			},
+			{
+				type: 'number',
+				id: 'offset',
+				label: 'Offset (cm)',
+				default: 0,
+				min: -1000,
+				max: 1000,
+				isVisible: (options) => options.useActionOffset === false,
+			},
+		]
+		feedbacks.talm_depth_text = {
+			type: 'advanced',
+			name: 'Talm: diepte als knoptekst',
+			description:
+				'Zet de knoptekst op basis diepte + offset (bijv. 55cm). Standaard de offset van de diepte actie op dezelfde knop.',
+			options: talmTextOptions,
+			callback: (feedback) => oneLineText(`${this.talmDepth(this.talmTextOffset(feedback, 'depth'))}cm`),
+		}
+		feedbacks.talm_height_text = {
+			type: 'advanced',
+			name: 'Talm: hoogte als knoptekst',
+			description:
+				'Zet de knoptekst op basis hoogte + offset (bijv. 2.00m). Standaard de offset van de hoogte actie op dezelfde knop.',
+			options: talmTextOptions,
+			callback: (feedback) => oneLineText(formatHeight(this.talmHeight(this.talmTextOffset(feedback, 'height')))),
+		}
 		this.setFeedbackDefinitions(feedbacks)
 	}
 
@@ -353,13 +478,28 @@ class LEDScreenModule extends InstanceBase {
 			label: logo,
 		}))
 
+		const talmTargetOption = {
+			type: 'dropdown',
+			id: 'target',
+			label: 'Scherm of groep',
+			default: 'selected',
+			choices: [
+				{ id: 'selected', label: 'Geselecteerd scherm/groep' },
+				...Object.entries(this.screens).map(([key, screen]) => ({
+					id: key,
+					label: screen.Name || `Scherm ${key}`,
+				})),
+				...Object.keys(this.Groups).map((group) => ({ id: `group:${group}`, label: `Groep ${group}` })),
+			],
+		}
+
 		const keepOnOffChoices = [
 			{ id: 'keep', label: 'Niet wijzigen' },
 			{ id: '1', label: 'Aan' },
 			{ id: '0', label: 'Uit' },
 		]
 
-		this.setActionDefinitions({
+		this.setActionDefinitions(this.withPreviewRefresh({
 			setZero: {
 				name: 'set SB to 0.0',
 				callback: async () => {
@@ -411,6 +551,7 @@ class LEDScreenModule extends InstanceBase {
 					},
 				],
 				callback: async (event) => {
+					if (!event.options.all && !this.requireSelection(event.controlId)) return
 					await this.sendScoreBoardLines(event.options)
 				},
 			},
@@ -435,7 +576,7 @@ class LEDScreenModule extends InstanceBase {
 						last_selected_screen_button_id: event.controlId,
 						selected_Screen_key: this.selectedScreen,
 					})
-					this.checkFeedbacks('selected_button_highlight', 'current_show')
+					this.checkFeedbacks('selected_button_highlight', 'current_show', 'no_selection')
 				},
 			},
 			select_group: {
@@ -461,7 +602,7 @@ class LEDScreenModule extends InstanceBase {
 						last_selected_screen_button_id: event.controlId,
 						selected_Screen_key: this.selectedScreen,
 					})
-					this.checkFeedbacks('selected_button_highlight', 'current_show')
+					this.checkFeedbacks('selected_button_highlight', 'current_show', 'no_selection')
 				},
 			},
 			send_show: {
@@ -477,6 +618,7 @@ class LEDScreenModule extends InstanceBase {
 				],
 				callback: async (event) => {
 					this.buttonShowMap[event.controlId] = event.options.show
+					if (!this.requireSelection(event.controlId)) return
 					await this.sendShowToScreen(this.selectedScreen, event.options.show)
 				},
 			},
@@ -492,6 +634,7 @@ class LEDScreenModule extends InstanceBase {
 					},
 				],
 				callback: async (event) => {
+					if (!this.requireSelection(event.controlId)) return
 					await this.sendShowLogoToScreen(this.selectedScreen, event.options.logo)
 				},
 			},
@@ -533,7 +676,8 @@ class LEDScreenModule extends InstanceBase {
 			},
 			restore_screen: {
 				name: 'Stuur restore naar geselecteerd scherm',
-				callback: async () => {
+				callback: async (event) => {
+					if (!this.requireSelection(event.controlId)) return
 					await this.restoreScreen(this.selectedScreen)
 				},
 			},
@@ -543,7 +687,269 @@ class LEDScreenModule extends InstanceBase {
 					await this.restoreAllScreens()
 				},
 			},
-		})
+			talm_set: {
+				name: 'Talm: zet timer',
+				options: [
+					{
+						type: 'number',
+						id: 'minutes',
+						label: 'Minuten',
+						default: 1,
+						min: 0,
+						max: 600,
+						step: 0.5,
+					},
+					talmTargetOption,
+				],
+				callback: async (event) => {
+					const seconds = Math.round(Number(event.options.minutes) * 60)
+					this.talmLastSet = seconds
+					await this.sendTalm(event.options.target, 'set', seconds, event.controlId)
+				},
+			},
+			talm_settime: {
+				name: 'Talm: aftellen tot tijdstip',
+				options: [
+					{
+						type: 'textinput',
+						id: 'time',
+						label: 'Tijd (UU:MM)',
+						default: '12:00',
+						useVariables: true,
+					},
+					talmTargetOption,
+				],
+				callback: async (event, context) => {
+					const time = (await context.parseVariablesInString(event.options.time)).trim()
+					if (!/^\d{1,2}:\d{2}$/.test(time)) {
+						this.log('warn', `Ongeldige tijd: ${time}`)
+						return
+					}
+					await this.sendTalm(event.options.target, 'settime', time, event.controlId)
+				},
+			},
+			talm_command: {
+				name: 'Talm: commando',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'command',
+						label: 'Commando',
+						default: 'start',
+						choices: [
+							{ id: 'start', label: 'Start' },
+							{ id: 'stop', label: 'Stop' },
+							{ id: 'reset', label: 'Reset' },
+							{ id: 'V', label: 'Geldig (✓)' },
+							{ id: 'X', label: 'Ongeldig (✗)' },
+							{ id: 'clear', label: 'Clear' },
+						],
+					},
+					talmTargetOption,
+				],
+				callback: async (event) => {
+					const command = event.options.command
+					// Like the control page: start sends the last chosen timer preset along
+					await this.sendTalm(event.options.target, command, command === 'start' ? this.talmLastSet : undefined, event.controlId)
+				},
+			},
+			talm_depth: {
+				name: 'Talm: stuur diepte (basis + offset)',
+				options: [
+					{
+						type: 'number',
+						id: 'offset',
+						label: 'Offset (cm)',
+						default: 0,
+						min: -1000,
+						max: 1000,
+					},
+					talmTargetOption,
+				],
+				subscribe: (action) => this.trackTalmOffset(action, 'depth'),
+				unsubscribe: (action) => this.untrackTalmOffset(action),
+				callback: async (event) => {
+					await this.sendTalm(event.options.target, 'depth', this.talmDepth(event.options.offset), event.controlId)
+				},
+			},
+			talm_depth_base: {
+				name: 'Talm: wijzig basis diepte',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'mode',
+						label: 'Modus',
+						default: 'add',
+						choices: [
+							{ id: 'add', label: 'Ophogen/verlagen met' },
+							{ id: 'set', label: 'Zetten op' },
+						],
+					},
+					{
+						type: 'number',
+						id: 'value',
+						label: 'Waarde (cm)',
+						default: 5,
+						min: -1000,
+						max: 1000,
+					},
+				],
+				callback: (event) => {
+					const value = Number(event.options.value) || 0
+					this.talmBaseDepth = event.options.mode === 'set' ? value : this.talmBaseDepth + value
+					this.talmBaseChanged()
+				},
+			},
+			talm_height: {
+				name: 'Talm: stuur hoogte (basis + offset)',
+				options: [
+					{
+						type: 'number',
+						id: 'offset',
+						label: 'Offset (cm)',
+						default: 0,
+						min: -1000,
+						max: 1000,
+					},
+					talmTargetOption,
+				],
+				subscribe: (action) => this.trackTalmOffset(action, 'height'),
+				unsubscribe: (action) => this.untrackTalmOffset(action),
+				callback: async (event) => {
+					await this.sendTalm(event.options.target, 'height', this.talmHeight(event.options.offset), event.controlId)
+				},
+			},
+			talm_height_base: {
+				name: 'Talm: wijzig basis hoogte',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'mode',
+						label: 'Modus',
+						default: 'add',
+						choices: [
+							{ id: 'add', label: 'Ophogen/verlagen met' },
+							{ id: 'set', label: 'Zetten op' },
+						],
+					},
+					{
+						type: 'number',
+						id: 'value',
+						label: 'Waarde (cm)',
+						default: 1,
+						min: -1000,
+						max: 1000,
+					},
+				],
+				callback: (event) => {
+					const value = Number(event.options.value) || 0
+					this.talmBaseHeight = event.options.mode === 'set' ? value : this.talmBaseHeight + value
+					this.talmBaseChanged()
+				},
+			},
+		}))
+	}
+
+	talmDepth(offset) {
+		return this.talmBaseDepth + (Number(offset) || 0)
+	}
+
+	talmHeight(offset) {
+		return this.talmBaseHeight + (Number(offset) || 0)
+	}
+
+	// Remembers the offset of a depth/height send action, so the text feedback on the same button can show it
+	trackTalmOffset(action, kind) {
+		this.talmActionOffsets[action.id] = { controlId: action.controlId, kind, offset: Number(action.options.offset) || 0 }
+		this.checkFeedbacks('talm_depth_text', 'talm_height_text')
+	}
+
+	untrackTalmOffset(action) {
+		delete this.talmActionOffsets[action.id]
+		this.checkFeedbacks('talm_depth_text', 'talm_height_text')
+	}
+
+	// Offset for a Talm text feedback: the send action's offset on the same button (default), or the feedback's own
+	talmTextOffset(feedback, kind) {
+		// feedbacks made before this option existed have no value: they follow the action too
+		if (feedback.options.useActionOffset !== false) {
+			const tracked = Object.values(this.talmActionOffsets).find(
+				(entry) => entry.controlId === feedback.controlId && entry.kind === kind,
+			)
+			if (tracked) return tracked.offset
+		}
+		return feedback.options.offset
+	}
+
+	talmBaseChanged() {
+		this.updateTalmVariables()
+		this.checkFeedbacks('talm_depth_text', 'talm_height_text')
+	}
+
+	// Screen keys for a Talm target: 'selected' (the selected screen/group), 'group:<name>' or a screen key
+	talmTargetKeys(target) {
+		if (target === 'selected' || target === undefined) {
+			if (this.selectedScreen === null) return []
+			return this.CurrentIsGroup ? this.Groups[this.selectedScreen] || [] : [this.selectedScreen]
+		}
+		if (typeof target === 'string' && target.startsWith('group:')) {
+			return this.Groups[target.substring(6)] || []
+		}
+		return [target]
+	}
+
+	// True when the selected screen/group points to at least one known screen
+	hasSelection() {
+		return this.talmTargetKeys('selected').some((key) => this.screens[key])
+	}
+
+	// Checks there is a selection; if not, logs it and flashes the pressed button (no_selection feedback)
+	requireSelection(controlId) {
+		if (this.hasSelection()) return true
+		this.flagNoSelection(controlId)
+		return false
+	}
+
+	flagNoSelection(controlId) {
+		this.log('warn', 'Geen scherm geselecteerd')
+		if (!controlId) return
+		clearTimeout(this.noSelectionFlash[controlId])
+		this.noSelectionFlash[controlId] = setTimeout(() => {
+			delete this.noSelectionFlash[controlId]
+			this.checkFeedbacks('no_selection')
+		}, 2000)
+		this.checkFeedbacks('no_selection')
+	}
+
+	// Posts a Talm action to the screen(s), the same way the Talm control page does
+	async sendTalm(target, action, param, controlId) {
+		const keys = this.talmTargetKeys(target).filter((key) => this.screens[key])
+		if (keys.length === 0) {
+			this.flagNoSelection(controlId)
+			return
+		}
+		const body = { action }
+		if (param !== undefined && param !== null) body.param = `${param}`
+		for (const key of keys) {
+			const screen = this.screens[key]
+			if (!screen) {
+				this.log('error', 'Ongeldig scherm geselecteerd')
+				continue
+			}
+			const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/talm/action/${screen.Key}`
+			try {
+				const res = await fetch(url, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(body),
+				})
+				if (!res.ok) {
+					this.log('error', `Fout bij Talm ${action} (${res.status}): ${await res.text()}`)
+				}
+			} catch (err) {
+				this.log('error', `Fout bij Talm ${action}: ${err.message}`)
+			}
+		}
 	}
 
 	async sendToAllScreens(endpoint) {
@@ -758,7 +1164,107 @@ class LEDScreenModule extends InstanceBase {
 		for (const lines of [4, 6, 8]) {
 			presets[`SBLines${lines}`] = this.createSBLinesPreset(lines)
 		}
+		Object.assign(presets, this.createTalmPresets())
 		this.setPresetDefinitions(presets)
+	}
+
+	// Preset feedback for buttons that send to the selected screen/group
+	noSelectionFeedback() {
+		return {
+			feedbackId: 'no_selection',
+			options: { idlecolor: combineRgb(0x55, 0, 0), errorcolor: combineRgb(255, 0, 0), errortext: 'Geen scherm!' },
+		}
+	}
+
+	// Talm presets, laid out like the Talm control page
+	createTalmPresets() {
+		const presets = {}
+		const button = (category, name, text, actionId, options, feedbacks = []) => ({
+			type: 'button',
+			category,
+			name,
+			style: {
+				show_topbar: false,
+				text,
+				// depth/height values stay on one line, like their text feedback
+				size: feedbacks.length > 0 ? oneLineText(text).size : 'auto',
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(0, 0, 0),
+			},
+			steps: [{ down: [{ actionId, options }], up: [] }],
+			// the warning goes last so its text wins over the depth/height text
+			feedbacks: options.target === 'selected' ? [...feedbacks, this.noSelectionFeedback()] : feedbacks,
+		})
+
+		for (const minutes of [1, 1.5, 2, 3, 4, 5, 6, 30]) {
+			const text = `${Math.floor(minutes)}:${minutes % 1 ? '30' : '00'}`
+			presets[`talm_set_${minutes}`] = button('Talm timer', `Timer ${text}`, text, 'talm_set', {
+				minutes,
+				target: 'selected',
+			})
+		}
+		presets.talm_settime = button('Talm timer', 'Aftellen tot tijdstip', 'tot\n12:00', 'talm_settime', {
+			time: '12:00',
+			target: 'selected',
+		})
+		for (const [command, text, category] of [
+			['start', 'Start', 'Talm timer'],
+			['stop', 'Stop', 'Talm timer'],
+			['reset', 'Reset', 'Talm timer'],
+			['V', '✓', 'Talm vlag'],
+			['X', '✗', 'Talm vlag'],
+			['clear', 'Clear', 'Talm vlag'],
+		]) {
+			presets[`talm_${command}`] = button(category, `Talm ${command}`, text, 'talm_command', {
+				command,
+				target: 'selected',
+			})
+		}
+
+		// Depth: --/-/+/++ shift the base, the depth buttons send base + offset and show that value
+		for (const [delta, text] of [
+			[-5, '--'],
+			[-1, '-'],
+			[1, '+'],
+			[5, '++'],
+		]) {
+			presets[`talm_depth_base_${delta}`] = button('Talm diepte', `Basis diepte ${text}`, text, 'talm_depth_base', {
+				mode: 'add',
+				value: delta,
+			})
+		}
+		for (const offset of [-20, -15, -10, -5, 0, 5, 10]) {
+			presets[`talm_depth_${offset}`] = button(
+				'Talm diepte',
+				`Diepte ${offset >= 0 ? '+' : ''}${offset}`,
+				`${this.talmDepth(offset)}cm`,
+				'talm_depth',
+				{ offset, target: 'selected' },
+				[{ feedbackId: 'talm_depth_text', options: { useActionOffset: true, offset } }],
+			)
+		}
+
+		// Height: arrows shift the base, the middle button sends it
+		for (const [delta, text] of [
+			[-10, '⬇⬇'],
+			[-1, '⬇'],
+			[1, '⬆'],
+			[10, '⬆⬆'],
+		]) {
+			presets[`talm_height_base_${delta}`] = button('Talm hoogte', `Basis hoogte ${delta}`, text, 'talm_height_base', {
+				mode: 'add',
+				value: delta,
+			})
+		}
+		presets.talm_height = button(
+			'Talm hoogte',
+			'Stuur hoogte',
+			formatHeight(this.talmBaseHeight),
+			'talm_height',
+			{ offset: 0, target: 'selected' },
+			[{ feedbackId: 'talm_height_text', options: { useActionOffset: true, offset: 0 } }],
+		)
+		return presets
 	}
 		createSBZeroPreset() {
 			return {
@@ -823,6 +1329,7 @@ ${lines} regels`,
 					up: [],
 				},
 			],
+			feedbacks: [this.noSelectionFeedback()],
 		}
 	}
 	createShowReactionPreset() {
@@ -891,7 +1398,7 @@ ${lines} regels`,
 			feedbacks: [
 				{
 					feedbackId: 'selected_button_highlight',
-					options: { nbgcolor: combineRgb(0xCC, 0xCC, 0x00) },
+					options: { nbgcolor: combineRgb(0, 0x60, 0) },
 				},
 				{
 					feedbackId: 'screen_preview',
@@ -967,7 +1474,7 @@ ${lines} regels`,
 			feedbacks: [
 				{
 					feedbackId: 'selected_button_highlight',
-					options: { nbgcolor: combineRgb(0xCC, 0xCC, 0x00) },
+					options: { nbgcolor: combineRgb(0, 0x60, 0) },
 				},
 				{
 					feedbackId: 'screen_preview',
@@ -1007,6 +1514,7 @@ ${lines} regels`,
 					up: [],
 				},
 			],
+			feedbacks: [this.noSelectionFeedback()],
 		}
 	}
 
@@ -1062,6 +1570,7 @@ ${lines} regels`,
 					up: [],
 				},
 			],
+			feedbacks: [this.noSelectionFeedback()],
 		}
 	}
 
@@ -1102,8 +1611,9 @@ ${lines} regels`,
 			feedbacks: [
 				{
 					feedbackId: 'current_show',
-					options: { show: showOption.id, nbgcolor: combineRgb(0xCC,0x00, 0xCC) },
+					options: { show: showOption.id, nbgcolor: combineRgb(0, 0, 0x90) },
 				},
+				...(isAll ? [] : [this.noSelectionFeedback()]),
 			],
 		}
 	}
@@ -1134,12 +1644,30 @@ ${lines} regels`,
 			{
 				type: 'number',
 				id: 'previewInterval',
-				label: 'Preview interval (seconden)',
+				label: 'Preview interval (seconden, 0 = alleen bij knopdruk)',
 				width: 6,
-				min: 0.5,
+				min: 0,
 				max: 60,
 				default: 2,
 				isVisible: (options) => !!options.enablePreviews,
+			},
+			{
+				type: 'number',
+				id: 'talmDepth',
+				label: 'Talm standaard diepte (cm)',
+				width: 6,
+				min: 0,
+				max: 1000,
+				default: 60,
+			},
+			{
+				type: 'number',
+				id: 'talmHeight',
+				label: 'Talm standaard hoogte (cm)',
+				width: 6,
+				min: 0,
+				max: 1000,
+				default: 200,
 			},
 		]
 	}
@@ -1147,7 +1675,12 @@ ${lines} regels`,
 	async configUpdated(config) {
 		this.serverIp = config.serverIp
 		this.serverPort = config.serverPort
+		// A changed default puts the base back on the new default
+		if (parseInt(config.talmDepth) !== parseInt(this.config.talmDepth)) this.talmBaseDepth = parseInt(config.talmDepth) || 60
+		if (parseInt(config.talmHeight) !== parseInt(this.config.talmHeight))
+			this.talmBaseHeight = parseInt(config.talmHeight) || 200
 		this.config = config
+		this.talmBaseChanged()
 		this.fetchScreens()
 		this.fetchLogo()
 		this.startPolling()
@@ -1163,6 +1696,9 @@ ${lines} regels`,
 			clearInterval(this.previewTimer)
 			this.previewTimer = null
 		}
+		clearTimeout(this.previewFollowUpTimer)
+		for (const timer of Object.values(this.noSelectionFlash)) clearTimeout(timer)
+		this.noSelectionFlash = {}
 	}
 }
 
@@ -1222,6 +1758,19 @@ function addTextBand(buf, width, height, bandFraction = 0.35, opacity = 0.6) {
 		}
 	}
 	return buf
+}
+
+// Button text with a fixed font size small enough to keep it on one line: with size 'auto' Companion
+// prefers a bigger font over two lines and splits values like 2.05m into "2.05" and "m"
+function oneLineText(text) {
+	return { text, size: text.length <= 6 ? 18 : 14 }
+}
+
+// Height in cm as shown on the Talm control page, e.g. 200 -> 2.00m
+function formatHeight(cm) {
+	const sign = cm < 0 ? '-' : ''
+	const abs = Math.abs(cm)
+	return `${sign}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}m`
 }
 
 function ipPortToKey(ip, key) {
