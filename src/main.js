@@ -1,4 +1,5 @@
 const { InstanceBase, runEntrypoint, InstanceStatus, combineRgb } = require('@companion-module/base')
+const { PNG } = require('pngjs')
 
 class LEDScreenModule extends InstanceBase {
 	async init(config) {
@@ -10,6 +11,8 @@ class LEDScreenModule extends InstanceBase {
 		this.restore = {}
 		this.logos = {}
 		this.buttonShowMap = {} // Track show values per button
+		this.previews = {} // screenKey -> { width, height, data, scaled }
+		this.previewSubscriptions = {} // feedbackId -> preview target
 			this.showOptions = [
 			{ id: 0, label: 'Anu' },
 			{ id: 1, label: 'Logo' },
@@ -32,6 +35,59 @@ class LEDScreenModule extends InstanceBase {
 		this.updateVariables()
 		this.updateFeedbacks()
 		this.startPolling()
+		this.startPreviewPolling()
+	}
+
+	startPreviewPolling() {
+		if (this.previewTimer) {
+			clearInterval(this.previewTimer)
+			this.previewTimer = null
+		}
+		this.previews = {}
+		this.checkFeedbacks('screen_preview')
+		if (!this.config.enablePreviews) return
+
+		const interval = Math.max(0.5, parseFloat(this.config.previewInterval) || 2) * 1000
+		this.previewTimer = setInterval(() => this.fetchPreviews(interval), interval)
+		this.fetchPreviews(interval)
+	}
+
+	// A preview target is a screen key, or 'group:<name>' which shows the first screen of that group
+	previewTargetToScreenKey(target) {
+		if (typeof target === 'string' && target.startsWith('group:')) {
+			return (this.Groups[target.substring(6)] || [])[0]
+		}
+		return target
+	}
+
+	async fetchPreviews(timeout) {
+		if (this.previewsInFlight) return
+		this.previewsInFlight = true
+		try {
+			const keys = new Set(
+				Object.values(this.previewSubscriptions)
+					.map((target) => this.previewTargetToScreenKey(target))
+					.filter((key) => key !== undefined && this.screens[key]),
+			)
+			await Promise.all(
+				[...keys].map(async (key) => {
+					const screen = this.screens[key]
+					const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/preview/${screen.Key}`
+					try {
+						const res = await fetch(url, { signal: AbortSignal.timeout(timeout) })
+						if (!res.ok) throw new Error(`HTTP ${res.status}`)
+						const png = PNG.sync.read(Buffer.from(await res.arrayBuffer()))
+						this.previews[key] = { width: png.width, height: png.height, data: png.data, scaled: {} }
+					} catch (err) {
+						this.log('debug', `Kan preview van scherm ${key} niet laden: ${err.message}`)
+						delete this.previews[key]
+					}
+				}),
+			)
+			this.checkFeedbacks('screen_preview')
+		} finally {
+			this.previewsInFlight = false
+		}
 	}
 
 	startPolling() {
@@ -80,6 +136,7 @@ class LEDScreenModule extends InstanceBase {
 			this.screens = nscreens
 			this.updateScreenNameVariables()
 			this.updateActions()
+			this.updateFeedbacks()
 			this.updatePreset()
 			this.updateStatus(InstanceStatus.Ok)
 		} catch (err) {
@@ -138,6 +195,14 @@ class LEDScreenModule extends InstanceBase {
 	}
 
 	updateFeedbacks() {
+		const previewChoices = [
+			...Object.entries(this.screens).map(([key, screen]) => ({
+				id: key,
+				label: screen.Name || `Scherm ${key}`,
+			})),
+			...Object.keys(this.Groups).map((group) => ({ id: `group:${group}`, label: `Groep ${group}` })),
+		]
+
 		const feedbacks = {
 			selected_button_highlight: {
 				type: 'advanced',
@@ -182,6 +247,44 @@ class LEDScreenModule extends InstanceBase {
 					}
 					return {}
 				},
+			},
+		}
+		feedbacks.screen_preview = {
+			type: 'advanced',
+			name: 'Preview van scherm/groep',
+			description:
+				'Toont de huidige inhoud van het scherm (of het eerste scherm van de groep) als achtergrond. Werkt alleen als previews aan staan in de instellingen.',
+			options: [
+				{
+					type: 'dropdown',
+					id: 'target',
+					label: 'Scherm of groep',
+					default: previewChoices[0]?.id ?? '',
+					choices: previewChoices,
+				},
+			],
+			subscribe: (feedback) => {
+				this.previewSubscriptions[feedback.id] = feedback.options.target
+			},
+			unsubscribe: (feedback) => {
+				delete this.previewSubscriptions[feedback.id]
+			},
+			callback: (feedback) => {
+				this.previewSubscriptions[feedback.id] = feedback.options.target
+				if (!this.config.enablePreviews) return {}
+				const preview = this.previews[this.previewTargetToScreenKey(feedback.options.target)]
+				if (!preview) return {}
+				const width = feedback.image?.width ?? 72
+				const height = feedback.image?.height ?? 72
+				const sizeKey = `${width}x${height}`
+				preview.scaled[sizeKey] ??= addTextBand(scaleToFit(preview, width, height), width, height)
+				return {
+					imageBuffer: preview.scaled[sizeKey],
+					imageBufferEncoding: { pixelFormat: 'RGBA' },
+					imageBufferPosition: { x: 0, y: 0, width, height },
+					// Text goes on the dark band at the bottom so it stays readable over the preview
+					alignment: 'center:bottom',
+				}
 			},
 		}
 		this.setFeedbackDefinitions(feedbacks)
@@ -726,6 +829,10 @@ ${lines} regels`,
 					feedbackId: 'selected_button_highlight',
 					options: { nbgcolor: combineRgb(0xCC, 0xCC, 0x00) },
 				},
+				{
+					feedbackId: 'screen_preview',
+					options: { target: `group:${groupName}` },
+				},
 			],
 		}
 	}
@@ -763,6 +870,10 @@ ${lines} regels`,
 				{
 					feedbackId: 'selected_button_highlight',
 					options: { nbgcolor: combineRgb(0xCC, 0xCC, 0x00) },
+				},
+				{
+					feedbackId: 'screen_preview',
+					options: { target: key },
 				},
 			],
 		}
@@ -915,6 +1026,23 @@ ${lines} regels`,
 				default: '8001',
 				width: '10',
 			},
+			{
+				type: 'checkbox',
+				id: 'enablePreviews',
+				label: 'Previews tonen op scherm/groep knoppen',
+				width: 6,
+				default: false,
+			},
+			{
+				type: 'number',
+				id: 'previewInterval',
+				label: 'Preview interval (seconden)',
+				width: 6,
+				min: 0.5,
+				max: 60,
+				default: 2,
+				isVisible: (options) => !!options.enablePreviews,
+			},
 		]
 	}
 
@@ -925,6 +1053,7 @@ ${lines} regels`,
 		this.fetchScreens()
 		this.fetchLogo()
 		this.startPolling()
+		this.startPreviewPolling()
 	}
 
 	async destroy() {
@@ -932,10 +1061,70 @@ ${lines} regels`,
 			clearInterval(this.pollTimer)
 			this.pollTimer = null
 		}
+		if (this.previewTimer) {
+			clearInterval(this.previewTimer)
+			this.previewTimer = null
+		}
 	}
 }
 
 runEntrypoint(LEDScreenModule)
+
+// Scales an RGBA image to fit width x height (keeping aspect ratio, centred, transparent bands) by area averaging
+function scaleToFit(src, width, height) {
+	const out = Buffer.alloc(width * height * 4)
+	const scale = Math.min(width / src.width, height / src.height)
+	const w = Math.max(1, Math.round(src.width * scale))
+	const h = Math.max(1, Math.round(src.height * scale))
+	const offX = Math.floor((width - w) / 2)
+	const offY = Math.floor((height - h) / 2)
+	for (let y = 0; y < h; y++) {
+		const sy0 = Math.floor((y * src.height) / h)
+		const sy1 = Math.max(sy0 + 1, Math.floor(((y + 1) * src.height) / h))
+		for (let x = 0; x < w; x++) {
+			const sx0 = Math.floor((x * src.width) / w)
+			const sx1 = Math.max(sx0 + 1, Math.floor(((x + 1) * src.width) / w))
+			let r = 0
+			let g = 0
+			let b = 0
+			let a = 0
+			for (let sy = sy0; sy < sy1; sy++) {
+				for (let sx = sx0; sx < sx1; sx++) {
+					const i = (sy * src.width + sx) * 4
+					r += src.data[i]
+					g += src.data[i + 1]
+					b += src.data[i + 2]
+					a += src.data[i + 3]
+				}
+			}
+			const n = (sy1 - sy0) * (sx1 - sx0)
+			const o = ((offY + y) * width + offX + x) * 4
+			out[o] = r / n
+			out[o + 1] = g / n
+			out[o + 2] = b / n
+			out[o + 3] = a / n
+		}
+	}
+	return out
+}
+
+// Darkens the bottom part of an RGBA image (in place) with a semi-transparent black band to put text on
+function addTextBand(buf, width, height, bandFraction = 0.35, opacity = 0.6) {
+	const bandTop = height - Math.round(height * bandFraction)
+	for (let y = bandTop; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const o = (y * width + x) * 4
+			const a = buf[o + 3] / 255
+			const outA = opacity + a * (1 - opacity)
+			const k = (a * (1 - opacity)) / outA
+			buf[o] *= k
+			buf[o + 1] *= k
+			buf[o + 2] *= k
+			buf[o + 3] = Math.round(outA * 255)
+		}
+	}
+	return buf
+}
 
 function ipPortToKey(ip, key) {
 	if (ip == null) {
