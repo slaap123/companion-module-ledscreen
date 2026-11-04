@@ -12,6 +12,8 @@ class LEDScreenModule extends InstanceBase {
 		this.currentShow = {} // screenKey -> show id currently on that screen
 		this.logos = {}
 		this.titles = [] // names of the title presets on the LedScreen server
+		this.events = [] // { eventId, name } of the Atletiek.nu events on the LedScreen server
+		this.currentEvent = {} // screenKey -> Atletiek.nu event id the screen is set to
 		this.currentTitle = null
 		this.buttonShowMap = {} // Track show values per button
 		this.previews = {} // screenKey -> { width, height, data, scaled }
@@ -145,6 +147,7 @@ class LEDScreenModule extends InstanceBase {
 			this.fetchScreens()
 			this.fetchLogo()
 			this.fetchTitles()
+			this.fetchEvents()
 		}, 60000)
 	}
 
@@ -154,6 +157,7 @@ class LEDScreenModule extends InstanceBase {
 		this.fetchScreens()
 		this.fetchLogo()
 		this.fetchTitles()
+		this.fetchEvents()
 	}
 
 	async fetchScreens() {
@@ -172,6 +176,7 @@ class LEDScreenModule extends InstanceBase {
 					this.restore[key] = screen.Show;
                 }
 				this.currentShow[key] = Number(screen.Show)
+				this.currentEvent[key] = screen.EventId ?? null
 				nscreens[ipPortToKey(screen.IP, screen.Key)] = screen
 				for (const group of screen.SendGroups) {
 					if(group=="Default") continue;
@@ -185,7 +190,7 @@ class LEDScreenModule extends InstanceBase {
 			this.Groups = groups
 			this.log('info', `Groups: ${JSON.stringify(this.Groups)}`)
 			this.screens = nscreens
-			this.checkFeedbacks('screen_show', 'no_selection')
+			this.checkFeedbacks('screen_show', 'screen_event', 'no_selection')
 			this.updateScreenNameVariables()
 			this.updateActions()
 			this.updateFeedbacks()
@@ -234,6 +239,55 @@ class LEDScreenModule extends InstanceBase {
 		this.currentTitle = title
 		this.setVariableValues({ current_title: title ?? '' })
 		this.checkFeedbacks('title_active')
+	}
+
+	// The Atletiek.nu events a screen can be switched to (needs a LedScreen with the /events route)
+	async fetchEvents() {
+		try {
+			const res = await fetch(`http://${this.serverIp}:${this.serverPort}/events`)
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			const events = await res.json()
+			const changed = JSON.stringify(events) !== JSON.stringify(this.events)
+			this.events = events
+			if (changed) {
+				this.log('info', `${events.length} events geladen`)
+				this.updateActions()
+				this.updateFeedbacks()
+				this.updatePreset()
+			}
+		} catch (err) {
+			this.log('debug', `Kan events niet laden: ${err.message}`)
+		}
+	}
+
+	// Switches the screen(s) of a target to an Atletiek.nu event, optionally also to the Anu show
+	async sendEvent(target, eventId, show, controlId) {
+		const keys = this.talmTargetKeys(target).filter((key) => this.screens[key])
+		if (keys.length === 0) {
+			this.flagNoSelection(controlId)
+			return
+		}
+		for (const key of keys) {
+			const screen = this.screens[key]
+			const url = `http://${screen.IP || this.serverIp}:${screen.Port || this.serverPort}/event/${screen.Key}/${eventId}`
+			try {
+				const res = await fetch(url)
+				if (res.ok) {
+					this.currentEvent[key] = Number(eventId)
+					if (show) {
+						this.restore[key] = 0
+						await this.postShowToScreen(key, 0)
+					}
+				} else if (res.status === 404) {
+					this.log('error', `Event ${eventId} of scherm ${screen.Key} bestaat niet op ${screen.IP || this.serverIp} (of LedScreen is te oud voor events kiezen)`)
+				} else {
+					this.log('error', `Fout bij event zetten (${res.status}): ${await res.text()}`)
+				}
+			} catch (err) {
+				this.log('error', `Fout bij event zetten: ${err.message}`)
+			}
+		}
+		this.checkFeedbacks('screen_event')
 	}
 
 	// Makes the named title the active one on every LedScreen computer (each has its own active title)
@@ -398,6 +452,37 @@ class LEDScreenModule extends InstanceBase {
 						: [target]
 				const show = Number(feedback.options.show)
 				return keys.length > 0 && keys.every((key) => this.currentShow[key] === show)
+			},
+		}
+		feedbacks.screen_event = {
+			type: 'boolean',
+			name: 'Event actief op scherm/groep',
+			description: 'Kleurt de knop als het scherm (of alle schermen van de groep) op het gekozen Atletiek.nu event staat.',
+			defaultStyle: {
+				bgcolor: combineRgb(0, 0, 0x90),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [
+				{
+					type: 'dropdown',
+					id: 'target',
+					label: 'Scherm of groep',
+					default: 'selected',
+					choices: [{ id: 'selected', label: 'Geselecteerd scherm/groep' }, ...targetChoices],
+				},
+				{
+					type: 'dropdown',
+					id: 'event',
+					label: 'Event',
+					default: this.events[0]?.eventId ?? '',
+					choices: this.events.map((event) => ({ id: event.eventId, label: event.name })),
+					allowCustom: true,
+				},
+			],
+			callback: (feedback) => {
+				const keys = this.talmTargetKeys(feedback.options.target)
+				const eventId = Number(feedback.options.event)
+				return keys.length > 0 && keys.every((key) => this.currentEvent[key] === eventId)
 			},
 		}
 		feedbacks.title_active = {
@@ -654,7 +739,7 @@ class LEDScreenModule extends InstanceBase {
 						last_selected_screen_button_id: event.controlId,
 						selected_Screen_key: this.selectedScreen,
 					})
-					this.checkFeedbacks('selected_button_highlight', 'current_show', 'no_selection')
+					this.checkFeedbacks('selected_button_highlight', 'current_show', 'screen_event', 'no_selection')
 				},
 			},
 			select_group: {
@@ -680,7 +765,7 @@ class LEDScreenModule extends InstanceBase {
 						last_selected_screen_button_id: event.controlId,
 						selected_Screen_key: this.selectedScreen,
 					})
-					this.checkFeedbacks('selected_button_highlight', 'current_show', 'no_selection')
+					this.checkFeedbacks('selected_button_highlight', 'current_show', 'screen_event', 'no_selection')
 				},
 			},
 			send_show: {
@@ -757,6 +842,35 @@ class LEDScreenModule extends InstanceBase {
 				callback: async (event) => {
 					if (!this.requireSelection(event.controlId)) return
 					await this.restoreScreen(this.selectedScreen)
+				},
+			},
+			set_event: {
+				name: 'Zet Atletiek.nu event',
+				description: 'Zet het geselecteerde scherm/groep (of een vast scherm/groep) op dit Atletiek.nu event.',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'event',
+						label: 'Event',
+						default: this.events[0]?.eventId ?? '',
+						choices: this.events.map((event) => ({ id: event.eventId, label: event.name })),
+						allowCustom: true,
+					},
+					talmTargetOption,
+					{
+						type: 'checkbox',
+						id: 'show',
+						label: 'Ook de Anu show op deze schermen zetten',
+						default: false,
+					},
+				],
+				callback: async (event, context) => {
+					const eventId = (await context.parseVariablesInString(`${event.options.event ?? ''}`)).trim()
+					if (!/^\d+$/.test(eventId)) {
+						this.log('warn', `Ongeldig event: ${eventId}`)
+						return
+					}
+					await this.sendEvent(event.options.target, eventId, event.options.show, event.controlId)
 				},
 			},
 			set_title: {
@@ -1260,6 +1374,12 @@ class LEDScreenModule extends InstanceBase {
 		presets.restore = this.createRestorePreset()
 		presets.restore_ALL = this.createRestoreAllPreset()
 
+		// Event presets: switch the selection to the event, and also to the Anu show
+		for (const event of this.events) {
+			presets[`event_${event.eventId}`] = this.createEventPreset(event, false)
+			presets[`event_show_${event.eventId}`] = this.createEventPreset(event, true)
+		}
+
 		// Title presets: make the title active, and make it active + show it on the selection
 		for (const [i, title] of this.titles.entries()) {
 			presets[`title_${i}`] = this.createTitlePreset(title, false)
@@ -1632,6 +1752,35 @@ ${lines} regels`,
 		}
 	}
 
+	createEventPreset(event, show) {
+		return {
+			type: 'button',
+			category: show ? 'Event + Anu' : 'Event',
+			name: show ? `Event ${event.name} + Anu` : `Event ${event.name}`,
+			style: {
+				show_topbar: false,
+				text: event.name,
+				size: 'auto',
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(0, 0, 0),
+			},
+			steps: [
+				{
+					down: [{ actionId: 'set_event', options: { event: event.eventId, target: 'selected', show } }],
+					up: [],
+				},
+			],
+			feedbacks: [
+				{
+					feedbackId: 'screen_event',
+					options: { target: 'selected', event: event.eventId },
+					style: { bgcolor: combineRgb(0, 0, 0x90), color: combineRgb(255, 255, 255) },
+				},
+				this.noSelectionFeedback(),
+			],
+		}
+	}
+
 	createTitlePreset(title, show) {
 		return {
 			type: 'button',
@@ -1823,6 +1972,7 @@ ${lines} regels`,
 		this.fetchScreens()
 		this.fetchLogo()
 		this.fetchTitles()
+		this.fetchEvents()
 		this.startPolling()
 		this.startPreviewPolling()
 	}
